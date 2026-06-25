@@ -1,0 +1,88 @@
+# OSX
+.DS_Store
+
+# Xcode
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+project.xcworkspace
+
+# Android/IntelliJ
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+*.keystore
+!debug.keystore
+android/.gradle/
+android/build/
+android/app/build/
+
+# node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native prebuild (regenerate locally via `npx expo prebuild` / EAS)
+ios/
+android/
+ios/Pods/
+
+# Native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# Debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Cursor IDE (local agent rules — optional to commit)
+.cursor/
+
+# Misc — secrets and local env
+.env
+.env*.local
+
+# Supabase CLI / edge secrets (correct backend path)
+veylo_backend/supabase/functions/.env
+veylo_backend/supabase/.temp/
+
+# Legacy path (kept for safety if old layout exists)
+supabase/functions/.env
+supabase/.temp/
+
+# Local scratch / logs
+npm-install.log
+npx-expo
+test_regex.js
+*.log
+.zshrc.local

@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Veylo",
+    "slug": "veylo",
+    "owner": "jayden290405",
+    "version": "1.0.0",
+    "scheme": "veylo",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.veylo.app",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Veylo needs camera access to scan and catalogue your wardrobe.",
+        "NSPhotoLibraryUsageDescription": "Veylo needs access to your photos so you can import clothing.",
+        "NSLocationWhenInUseUsageDescription": "Veylo uses your location to provide weather-aware outfit suggestions."
+      }
+    },
+    "android": {
+      "package": "com.veylo.app",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.DETECT_SCREEN_CAPTURE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-dev-client", "expo-apple-authentication", "sentry-expo", "expo-localization"],
+    "extra": {
+      "eas": {
+        "projectId": "e0906328-9d79-4c81-a9b9-8d5a3e0ef9cb"
+      }
+    }
+  }
+}
