@@ -1,0 +1,316 @@
+import React, { useState } from 'react';
+import { ScrollView, TouchableOpacity, Alert, View, Dimensions } from 'react-native';
+import { Image } from 'expo-image';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import {
+  Screen,
+  Typography,
+  StyledView,
+  Card,
+  PrimaryButton,
+  SecondaryButton,
+} from '../../components/common';
+import { useThemeStore } from '../../store/useThemeStore';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import { useAuthStore } from '../../store/useAuthStore';
+import { BodyType } from '../../types';
+
+const { width } = Dimensions.get('window');
+
+const BODY_TYPES: { value: BodyType; label: string; description: string; icon: string }[] = [
+  { value: 'petite', label: 'Petite', description: 'Under 5\'4"', icon: 'person-outline' },
+  { value: 'average', label: 'Average', description: '5\'4" - 5\'7"', icon: 'person-outline' },
+  { value: 'tall', label: 'Tall', description: 'Over 5\'7"', icon: 'person-outline' },
+  { value: 'curvy', label: 'Curvy', description: 'Curvy build', icon: 'person-outline' },
+  { value: 'athletic', label: 'Athletic', description: 'Athletic build', icon: 'person-outline' },
+  {
+    value: 'plus-size',
+    label: 'Plus Size',
+    description: 'Plus size build',
+    icon: 'person-outline',
+  },
+  {
+    value: 'custom',
+    label: 'Custom',
+    description: 'Custom specifications',
+    icon: 'settings-outline',
+  },
+];
+
+const PHOTO_TIPS = [
+  { icon: 'sunny-outline', text: 'Good lighting - face should be well-lit' },
+  { icon: 'eye-outline', text: 'Face clearly visible - look directly at camera' },
+  { icon: 'body-outline', text: 'Full body or upper body visible' },
+  { icon: 'square-outline', text: 'Plain, uncluttered background' },
+  { icon: 'close-outline', text: 'Close-up preferred for better face capture' },
+];
+
+export const AvatarGenerationScreen = ({ navigation }: any) => {
+  const { user } = useAuthStore();
+  const { currentTheme } = useThemeStore();
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [selectedBodyType, setSelectedBodyType] = useState<BodyType | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const pickImage = async (useCamera: boolean) => {
+    try {
+      // Request permissions
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Camera permission is required to take photos.');
+          return;
+        }
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Photo library permission is required.');
+          return;
+        }
+      }
+
+      const result = await (useCamera
+        ? ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [3, 4],
+            quality: 0.9,
+          })
+        : ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [3, 4],
+            quality: 0.9,
+          }));
+
+      if (!result.canceled && result.assets[0]) {
+        setSelectedPhoto(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+    }
+  };
+
+  const handleGenerateAvatar = async () => {
+    if (!selectedPhoto) {
+      Alert.alert('Photo Required', 'Please select or take a photo first.');
+      return;
+    }
+
+    if (!selectedBodyType) {
+      Alert.alert('Body Type Required', 'Please select your body type.');
+      return;
+    }
+
+    if (!user?.id) {
+      Alert.alert('Error', 'User not found. Please log in again.');
+      return;
+    }
+
+    // Navigate to processing screen with photo and body type
+    navigation.navigate('AvatarProcessing', {
+      photoUri: selectedPhoto,
+      bodyType: selectedBodyType,
+    });
+  };
+
+  return (
+    <Screen className="bg-background">
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 40 }}
+      >
+        {/* Header */}
+        <Animated.View entering={FadeInDown.duration(400)}>
+          <Typography variant="header" className="text-4xl text-primary mb-2">
+            Create Your Avatar
+          </Typography>
+          <Typography className="text-gray-500 text-base mb-6">
+            Upload a photo and select your body type to generate a personalized avatar
+          </Typography>
+        </Animated.View>
+
+        {/* Photo Selection Section */}
+        <Animated.View entering={FadeInDown.duration(400).delay(100)}>
+          <Card className="p-6 mb-6 border-0 shadow-lg">
+            <Typography className="text-primary font-semibold text-lg mb-4">
+              Step 1: Add Your Photo
+            </Typography>
+
+            {selectedPhoto ? (
+              <StyledView className="items-center mb-4">
+                <Image
+                  source={{ uri: selectedPhoto }}
+                  style={{
+                    width: width - 80,
+                    height: (width - 80) * 1.3,
+                    borderRadius: 16,
+                    marginBottom: 16,
+                  }}
+                  contentFit="cover"
+                />
+                <TouchableOpacity
+                  onPress={() => setSelectedPhoto(null)}
+                  style={{
+                    paddingHorizontal: 20,
+                    paddingVertical: 10,
+                    borderRadius: 20,
+                    backgroundColor: currentTheme.colors.background,
+                    borderWidth: 1,
+                    borderColor: currentTheme.colors.textSecondary,
+                  }}
+                >
+                  <Typography className="text-primary font-medium">Change Photo</Typography>
+                </TouchableOpacity>
+              </StyledView>
+            ) : (
+              <StyledView className="items-center mb-4">
+                <StyledView
+                  style={{
+                    width: width - 80,
+                    height: (width - 80) * 1.3,
+                    borderRadius: 16,
+                    backgroundColor: currentTheme.colors.background,
+                    borderWidth: 2,
+                    borderColor: currentTheme.colors.textSecondary,
+                    borderStyle: 'dashed',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginBottom: 16,
+                  }}
+                >
+                  <Ionicons name="person" size={64} color={currentTheme.colors.textSecondary} />
+                  <Typography className="text-gray-500 text-center mt-4 px-4">
+                    Your photo will appear here
+                  </Typography>
+                </StyledView>
+
+                <StyledView style={{ width: '100%', gap: 12 }}>
+                  <PrimaryButton
+                    title="Take Photo"
+                    icon="camera"
+                    onPress={() => pickImage(true)}
+                    accessibilityLabel="Take photo"
+                  />
+                  <SecondaryButton
+                    title="Choose from Library"
+                    icon="images"
+                    onPress={() => pickImage(false)}
+                    accessibilityLabel="Choose photo from library"
+                  />
+                </StyledView>
+              </StyledView>
+            )}
+
+            {/* Photo Tips */}
+            <StyledView className="mt-4">
+              <Typography className="text-gray-500 text-sm mb-3 font-medium">
+                Tips for best results:
+              </Typography>
+              <StyledView className="flex-row flex-wrap gap-3">
+                {PHOTO_TIPS.map((tip, index) => (
+                  <StyledView
+                    key={index}
+                    className="flex-row items-center bg-background px-3 py-2 rounded-lg"
+                  >
+                    <Ionicons
+                      name={tip.icon as any}
+                      size={16}
+                      color={currentTheme.colors.primary}
+                    />
+                    <Typography className="text-gray-600 text-xs ml-2">{tip.text}</Typography>
+                  </StyledView>
+                ))}
+              </StyledView>
+            </StyledView>
+          </Card>
+        </Animated.View>
+
+        {/* Body Type Selection Section */}
+        <Animated.View entering={FadeInDown.duration(400).delay(200)}>
+          <Card className="p-6 mb-6 border-0 shadow-lg">
+            <Typography className="text-primary font-semibold text-lg mb-4">
+              Step 2: Select Body Type
+            </Typography>
+            <Typography className="text-gray-500 text-sm mb-4">
+              Choose the option that best matches your body type for accurate avatar generation
+            </Typography>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: 8 }}
+            >
+              {BODY_TYPES.map((bodyType) => (
+                <TouchableOpacity
+                  key={bodyType.value}
+                  onPress={() => setSelectedBodyType(bodyType.value)}
+                  style={{
+                    marginRight: 12,
+                    minWidth: 100,
+                  }}
+                >
+                  <LinearGradient
+                    colors={
+                      selectedBodyType === bodyType.value
+                        ? [currentTheme.colors.primary, currentTheme.colors.secondary]
+                        : [currentTheme.colors.background, currentTheme.colors.background]
+                    }
+                    style={{
+                      padding: 16,
+                      borderRadius: 16,
+                      alignItems: 'center',
+                      borderWidth: 2,
+                      borderColor:
+                        selectedBodyType === bodyType.value
+                          ? currentTheme.colors.primary
+                          : currentTheme.colors.textSecondary,
+                    }}
+                  >
+                    <Ionicons
+                      name={bodyType.icon as any}
+                      size={32}
+                      color={
+                        selectedBodyType === bodyType.value
+                          ? '#FFFFFF'
+                          : currentTheme.colors.primary
+                      }
+                    />
+                    <Typography
+                      className={`font-semibold mt-2 ${
+                        selectedBodyType === bodyType.value ? 'text-white' : 'text-primary'
+                      }`}
+                    >
+                      {bodyType.label}
+                    </Typography>
+                    <Typography
+                      className={`text-xs mt-1 ${
+                        selectedBodyType === bodyType.value ? 'text-white/80' : 'text-gray-500'
+                      }`}
+                    >
+                      {bodyType.description}
+                    </Typography>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Card>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.duration(400).delay(300)}>
+          <PrimaryButton
+            title="Generate Avatar"
+            icon="flash"
+            onPress={handleGenerateAvatar}
+            disabled={!selectedPhoto || !selectedBodyType || isLoading}
+            loading={isLoading}
+            accessibilityLabel="Generate avatar"
+          />
+        </Animated.View>
+      </ScrollView>
+    </Screen>
+  );
+};
