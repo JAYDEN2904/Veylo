@@ -93,8 +93,9 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
   const outfitId = route.params?.outfitId;
   const [isLoggingWear, setIsLoggingWear] = useState(false);
 
-  // Get outfit from params or use generated outfit
-  const outfit = outfitId ? outfits.find((o) => o.id === outfitId) : generatedOutfit;
+  // Library outfit by id, else the in-memory generated look (OutfitLoading passes generated id).
+  const fromLibrary = outfitId ? outfits.find((o) => o.id === outfitId) : undefined;
+  const outfit = fromLibrary ?? generatedOutfit;
 
   const [isFavorite, setIsFavorite] = useState(outfit?.favorite || false);
 
@@ -276,6 +277,26 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
             )}
           </Animated.View>
         </LinearGradient>
+
+        {/* Why this works */}
+        {outfit.fitReasoning && outfit.fitReasoning.length > 0 && (
+          <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+            <Animated.View entering={FadeInDown.duration(500).delay(400)}>
+              <Typography className="text-lg font-semibold text-primary mb-3">
+                Why this works
+              </Typography>
+              {outfit.fitReasoning.map((line: string) => (
+                <Typography
+                  key={line}
+                  className="text-gray-600 text-sm mb-2"
+                  style={{ lineHeight: 20 }}
+                >
+                  {line}
+                </Typography>
+              ))}
+            </Animated.View>
+          </View>
+        )}
 
         {/* Outfit Items */}
         <View style={{ paddingHorizontal: 24, marginTop: 24 }}>

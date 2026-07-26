@@ -6,16 +6,31 @@ import { Screen, Typography, Button, StyledView, Card } from '../../components/c
 import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  clothingItemUpdatesToPatch,
   fetchClothingItemById,
   signedUrlForItemPath,
   updateClothingItem,
 } from '../../services/wardrobeRepository';
 import { isSupabaseConfigured } from '../../services/supabase';
 import { normalizeCategory } from '../../services/outfitCategoryNormalize';
+import { namedColorsToHsl } from '../../utils/hslColor';
 
 const CATEGORIES = ['Tops', 'Bottoms', 'Shoes', 'Accessories', 'Outerwear'];
+const COLOR_OPTIONS = [
+  'Black',
+  'White',
+  'Gray',
+  'Navy',
+  'Blue',
+  'Red',
+  'Green',
+  'Yellow',
+  'Pink',
+  'Purple',
+  'Brown',
+  'Beige',
+];
 const SUGGESTED_TAGS = ['white', 'linen', 'minimalist', 'everyday'];
-const FALLBACK_DETECTED = ['casual', 'summer', 'cotton'];
 
 const LOW_CONFIDENCE_THRESHOLD = 0.6;
 
@@ -40,32 +55,37 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
     aiCategory ? displayCategory(aiCategory) : 'Tops'
   );
   const [brand, setBrand] = useState('');
+  const [selectedColors, setSelectedColors] = useState<string[]>([]);
+  const [material, setMaterial] = useState('');
 
   useEffect(() => {
     if (!itemId || !isSupabaseConfigured()) {
-      setDetectedTags(FALLBACK_DETECTED);
-      setSelectedTags(FALLBACK_DETECTED);
+      setDetectedTags([]);
+      setSelectedTags([]);
+      setLoading(false);
       return;
     }
     (async () => {
       try {
         const row = await fetchClothingItemById(itemId);
         if (!row) {
-          setDetectedTags(FALLBACK_DETECTED);
-          setSelectedTags(FALLBACK_DETECTED);
+          setDetectedTags([]);
+          setSelectedTags([]);
           return;
         }
         const url = await signedUrlForItemPath(row.image_path);
         if (url) setImageUri(url);
         const tags = row.tags ?? [];
-        setDetectedTags(tags.length > 0 ? tags : FALLBACK_DETECTED);
-        setSelectedTags(tags.length > 0 ? tags : FALLBACK_DETECTED);
+        setDetectedTags(tags);
+        setSelectedTags(tags);
         setCategory(displayCategory(row.category));
         if (row.brand) setBrand(row.brand);
+        if (row.colors?.length) setSelectedColors(row.colors);
+        if (row.material) setMaterial(row.material);
       } catch (err) {
         if (__DEV__) console.error('[TagReview] hydrate', err);
-        setDetectedTags(FALLBACK_DETECTED);
-        setSelectedTags(FALLBACK_DETECTED);
+        setDetectedTags([]);
+        setSelectedTags([]);
       } finally {
         setLoading(false);
       }
@@ -91,6 +111,12 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
     if (isLowConfidence) setCategoryConfirmed(true);
   };
 
+  const toggleColor = (color: string) => {
+    setSelectedColors((prev) =>
+      prev.includes(color) ? prev.filter((c) => c !== color) : [...prev, color]
+    );
+  };
+
   const handleSave = async () => {
     if (isLowConfidence && !categoryConfirmed) {
       Alert.alert(
@@ -104,11 +130,17 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
     try {
       if (itemId && isSupabaseConfigured()) {
         setSaving(true);
-        await updateClothingItem(itemId, {
-          category: normalizedCategory,
-          brand: brand.trim() ? brand.trim() : null,
-          tags: selectedTags,
-        });
+        await updateClothingItem(
+          itemId,
+          clothingItemUpdatesToPatch({
+            category: normalizedCategory,
+            brand: brand.trim() ? brand.trim() : undefined,
+            tags: selectedTags,
+            colors: selectedColors,
+            colorsHsl: namedColorsToHsl(selectedColors),
+            material: material.trim() ? material.trim() : undefined,
+          })
+        );
       }
       navigation.navigate('SaveItemConfirmation', {
         itemId,
@@ -290,6 +322,64 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 color: currentTheme.colors.text,
               }}
             />
+          </StyledView>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.duration(400).delay(250)}>
+          <StyledView style={{ marginBottom: 24 }}>
+            <Typography className="text-sm font-medium text-gray-700 mb-2">
+              Material (optional)
+            </Typography>
+            <TextInput
+              value={material}
+              onChangeText={setMaterial}
+              placeholder="e.g., Cotton, Linen, Wool"
+              placeholderTextColor={currentTheme.colors.textSecondary}
+              style={{
+                height: 48,
+                paddingHorizontal: 16,
+                backgroundColor: currentTheme.colors.surface,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: currentTheme.colors.border,
+                fontSize: 16,
+                color: currentTheme.colors.text,
+              }}
+            />
+          </StyledView>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.duration(400).delay(275)}>
+          <Typography className="text-sm font-medium text-gray-700 mb-3">Colours</Typography>
+          <StyledView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+            {COLOR_OPTIONS.map((color) => {
+              const isSelected = selectedColors.includes(color);
+              return (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => toggleColor(color)}
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    backgroundColor: isSelected
+                      ? currentTheme.colors.primary
+                      : currentTheme.colors.surface,
+                    borderWidth: 2,
+                    borderColor: isSelected
+                      ? currentTheme.colors.secondary
+                      : currentTheme.colors.border,
+                  }}
+                >
+                  <Typography
+                    className="text-sm font-medium"
+                    style={{ color: isSelected ? '#FFF' : currentTheme.colors.text }}
+                  >
+                    {color}
+                  </Typography>
+                </TouchableOpacity>
+              );
+            })}
           </StyledView>
         </Animated.View>
 

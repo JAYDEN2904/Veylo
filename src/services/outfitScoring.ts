@@ -1,20 +1,17 @@
 import { ClothingItem, WeatherData } from '../types';
-import { isItemWeatherAppropriate } from '../utils/weatherOutfitFilter';
+import {
+  clothingItemToScoringInput,
+  compositeDimensionScore,
+  scoreItemDimensions,
+} from './outfitDimensionScoring';
 
-const NEUTRAL_TOKENS = new Set([
-  'white',
-  'black',
-  'gray',
-  'grey',
-  'navy',
-  'beige',
-  'cream',
-  'tan',
-  'brown',
-  'khaki',
-  'ivory',
-  'charcoal',
-]);
+export {
+  DIMENSION_WEIGHTS,
+  buildDimensionReasoning,
+  scoreOutfitDimensions,
+  clothingItemToScoringInput,
+} from './outfitDimensionScoring';
+export type { DimensionScores } from './outfitDimensionScoring';
 
 const FORMAL_HINTS = [
   'formal',
@@ -46,18 +43,7 @@ function hasAnyHint(blob: string, hints: string[]): boolean {
   return hints.some((h) => blob.includes(h));
 }
 
-/**
- * Penalize formality mismatches between a candidate and already picked items.
- *
- * When both items have a numeric `formalityScore` (1 = athletic, 4 = formal),
- * the penalty scales with the delta so the engine prefers coherent outfits:
- *   delta 0 → 0   (perfect match)
- *   delta 1 → 0   (acceptable step)
- *   delta 2 → 35  (noticeable clash)
- *   delta 3 → 70  (severe clash, e.g. gym shorts + blazer)
- *
- * Falls back to the keyword heuristic when scores are absent.
- */
+/** @deprecated Use dimension scoring — kept for tests */
 export function clashPenalty(candidate: ClothingItem, picked: ClothingItem[]): number {
   let penalty = 0;
   const cand = itemTagBlob(candidate);
@@ -67,36 +53,40 @@ export function clashPenalty(candidate: ClothingItem, picked: ClothingItem[]): n
   for (const p of picked) {
     if (candidate.formalityScore != null && p.formalityScore != null) {
       const delta = Math.abs(candidate.formalityScore - p.formalityScore);
-      if (delta >= 2) {
-        penalty += delta * 35;
-      }
+      if (delta >= 2) penalty += delta * 35;
     } else {
       const pb = itemTagBlob(p);
       const pFormal = hasAnyHint(pb, FORMAL_HINTS);
       const pAthletic = hasAnyHint(pb, ATHLETIC_HINTS);
-      if ((candFormal && pAthletic) || (candAthletic && pFormal)) {
-        penalty += 35;
-      }
+      if ((candFormal && pAthletic) || (candAthletic && pFormal)) penalty += 35;
     }
   }
   return penalty;
 }
 
-function isNeutralColorName(color: string): boolean {
-  return NEUTRAL_TOKENS.has(color.trim().toLowerCase());
-}
-
-/**
- * Light bonus when new item balances neutrals vs colors already in the outfit.
- */
+/** @deprecated Use dimension scoring — kept for tests */
 export function colorHarmonyBonus(candidate: ClothingItem, picked: ClothingItem[]): number {
   if (picked.length === 0) return 0;
+  const NEUTRAL = new Set([
+    'white',
+    'black',
+    'gray',
+    'grey',
+    'navy',
+    'beige',
+    'cream',
+    'tan',
+    'brown',
+    'khaki',
+    'ivory',
+    'charcoal',
+  ]);
+  const isNeutral = (c: string) => NEUTRAL.has(c.trim().toLowerCase());
   const pickedColors = picked.flatMap((p) => p.colors ?? []);
-  const neutralCount = pickedColors.filter(isNeutralColorName).length;
+  const neutralCount = pickedColors.filter(isNeutral).length;
   const nonNeutralCount = pickedColors.length - neutralCount;
-  const candNeutrals = (candidate.colors ?? []).filter(isNeutralColorName).length;
+  const candNeutrals = (candidate.colors ?? []).filter(isNeutral).length;
   const candTotal = (candidate.colors ?? []).length || 1;
-
   if (nonNeutralCount >= 2 && candNeutrals === candTotal) return 12;
   if (neutralCount >= pickedColors.length && candNeutrals < candTotal) return 8;
   return 0;
@@ -104,18 +94,12 @@ export function colorHarmonyBonus(candidate: ClothingItem, picked: ClothingItem[
 
 export interface ScoreContext {
   occasionTagKeywords: string[];
-  /** Lowercase substrings to boost when present in tags */
   styleBoostTerms: string[];
   weather?: WeatherData;
-  /**
-   * Wizard palette id (neutral | earth | bright | pastel | mono).
-   * When set, items whose colors fall in-palette get a meaningful bonus,
-   * items whose colors clash get a penalty.
-   */
   paletteId?: string;
+  occasionKey?: string;
 }
 
-/** Lowercase color tokens belonging to each wizard palette. */
 const PALETTE_TOKENS: Record<string, string[]> = {
   neutral: ['white', 'black', 'gray', 'grey', 'beige', 'cream', 'ivory', 'charcoal', 'silver'],
   earth: ['brown', 'tan', 'khaki', 'olive', 'rust', 'camel', 'sand', 'beige', 'terracotta'],
@@ -124,52 +108,41 @@ const PALETTE_TOKENS: Record<string, string[]> = {
   mono: ['black', 'white', 'gray', 'grey', 'charcoal', 'silver'],
 };
 
-function paletteBonus(item: ClothingItem, paletteId?: string): number {
+function paletteAdjustment(item: ClothingItem, paletteId?: string): number {
   if (!paletteId) return 0;
   const tokens = PALETTE_TOKENS[paletteId];
   if (!tokens) return 0;
   const colors = (item.colors ?? []).map((c) => c.toLowerCase());
   if (colors.length === 0) return 0;
   const hits = colors.filter((c) => tokens.some((t) => c.includes(t))).length;
-  if (hits === colors.length && hits > 0) return 20;
-  if (hits > 0) return 10;
-  return -8;
+  if (hits === colors.length && hits > 0) return 8;
+  if (hits > 0) return 4;
+  return -4;
 }
 
 /**
- * Higher is better. Used to pick among candidates in a category slot.
+ * Weighted composite score (30/25/20/15/10) for slot selection.
  */
 export function scoreItemForSlot(
   item: ClothingItem,
   ctx: ScoreContext,
   picked: ClothingItem[]
 ): number {
-  let score = 45;
-  const blob = itemTagBlob(item);
+  const input = clothingItemToScoringInput(item);
+  const pickedInputs = picked.map(clothingItemToScoringInput);
+  const styleTerms = [
+    ...ctx.styleBoostTerms,
+    ...ctx.occasionTagKeywords.map((k) => k.toLowerCase()),
+  ];
 
-  for (const kw of ctx.occasionTagKeywords) {
-    if (blob.includes(kw.toLowerCase())) score += 18;
-  }
+  const dimensions = scoreItemDimensions(input, {
+    picked: pickedInputs,
+    styleTerms,
+    weather: ctx.weather,
+    occasion: ctx.occasionKey,
+  });
 
-  let styleHits = 0;
-  for (const term of ctx.styleBoostTerms) {
-    if (term && blob.includes(term.toLowerCase())) {
-      styleHits += 1;
-      score += 10;
-    }
-  }
-  score += Math.min(15, styleHits * 3);
-
-  if (ctx.weather && isItemWeatherAppropriate(item, ctx.weather)) {
-    score += 16;
-  }
-
-  const worn = item.wornCount ?? 0;
-  score += Math.min(10, worn * 2);
-
-  score += colorHarmonyBonus(item, picked);
-  score -= clashPenalty(item, picked);
-  score += paletteBonus(item, ctx.paletteId);
-
-  return score;
+  let score = compositeDimensionScore(dimensions, Boolean(ctx.weather));
+  score += paletteAdjustment(item, ctx.paletteId);
+  return Math.max(0, Math.min(100, score));
 }

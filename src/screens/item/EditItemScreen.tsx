@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
   Screen,
@@ -10,9 +10,10 @@ import {
   StyledTouchableOpacity,
 } from '../../components/common';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
+import type { ClothingItem } from '../../types';
 import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
-import { Card } from '../../components/common';
+import { namedColorsToHsl } from '../../utils/hslColor';
 
 const CATEGORIES = ['Tops', 'Bottoms', 'Shoes', 'Accessories', 'Outerwear', 'Dresses', 'Bags'];
 const COLORS = [
@@ -67,21 +68,25 @@ export const EditItemScreen = ({ navigation, route }: any) => {
 
   const handleSave = async () => {
     setIsLoading(true);
-    updateItem(item.id, {
-      category,
-      brand: brand || undefined,
-      colors: selectedColors,
-      season: selectedSeasons as any,
-      tags: tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter((t) => t.length > 0),
-      notes: notes.trim() || undefined,
-    });
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      await updateItem(item.id, {
+        category,
+        brand: brand || undefined,
+        colors: selectedColors,
+        colorsHsl: namedColorsToHsl(selectedColors),
+        season: selectedSeasons as ClothingItem['season'],
+        tags: tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0),
+        notes: notes.trim() || undefined,
+      });
       navigation.goBack();
-    }, 500);
+    } catch {
+      Alert.alert('Save failed', 'Could not update this item. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

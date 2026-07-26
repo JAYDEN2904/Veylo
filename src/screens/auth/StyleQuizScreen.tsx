@@ -245,7 +245,7 @@ const TOTAL = QUESTIONS.length;
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export const StyleQuizScreen = ({ navigation }: any) => {
+export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
   const insets = useSafeAreaInsets();
   const { currentTheme, mode } = useThemeStore();
   const { answers, setAnswer } = useOnboardingStore();
@@ -309,11 +309,14 @@ export const StyleQuizScreen = ({ navigation }: any) => {
     if (step < TOTAL - 1) {
       setStep((s) => s + 1);
     } else {
-      // Quiz complete — derive the answers and go to reveal
       const finalAnswers = {
         ...answers,
         ...(answeredKey && answeredValue != null ? { [answeredKey]: answeredValue } : {}),
       };
+      if (editMode && typeof onComplete === 'function') {
+        onComplete(finalAnswers);
+        return;
+      }
       navigation.navigate('StyleDnaReveal', { answers: finalAnswers });
     }
   };

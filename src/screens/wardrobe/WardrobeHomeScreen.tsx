@@ -40,46 +40,21 @@ export const WardrobeHomeScreen = ({ navigation }: Props) => {
   const loadWeather = async () => {
     setWeatherLoading(true);
     try {
-      // Request location permission
       const { status } = await Location.requestForegroundPermissionsAsync();
-
       if (status !== 'granted') {
-        console.log('Location permission denied');
-        // Use user's saved location or default to San Francisco
-        const defaultLat = 37.7749;
-        const defaultLon = -122.4194;
-        const weatherData = await weatherService.getCurrentWeather(defaultLat, defaultLon);
-        setWeather(weatherData);
-        setWeatherLoading(false);
+        setWeather(null);
         return;
       }
 
-      // Get current location
       const location = await Location.getCurrentPositionAsync({});
       const weatherData = await weatherService.getCurrentWeather(
         location.coords.latitude,
         location.coords.longitude
       );
-
       setWeather(weatherData);
-
-      // Update user location if available
-      if (user && weatherData) {
-        // This would update user location in auth store
-        // await useAuthStore.getState().updateUser({
-        //   location: {
-        //     latitude: location.coords.latitude,
-        //     longitude: location.coords.longitude,
-        //   }
-        // });
-      }
     } catch (error) {
-      console.error('Error loading weather:', error);
-      // Fallback to mock/default weather
-      const defaultLat = 37.7749;
-      const defaultLon = -122.4194;
-      const weatherData = await weatherService.getCurrentWeather(defaultLat, defaultLon);
-      setWeather(weatherData);
+      if (__DEV__) console.error('[WardrobeHome] loadWeather', error);
+      setWeather(null);
     } finally {
       setWeatherLoading(false);
     }

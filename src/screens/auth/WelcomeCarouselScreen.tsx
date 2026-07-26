@@ -13,11 +13,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
+const WELCOME_HERO = require('../../../assets/marketing/welcome-hero.jpg');
+
 const SLIDE = {
   title: 'Your closet.\nYour style.\nUnlocked.',
   description: 'Discover the outfits hiding in your wardrobe — powered by AI.',
-  image:
-    'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=2000&auto=format&fit=crop',
 };
 
 export const WelcomeCarouselScreen = ({ navigation }: any) => {
@@ -27,7 +27,7 @@ export const WelcomeCarouselScreen = ({ navigation }: any) => {
     <View style={{ flex: 1, backgroundColor: theme.colors.primary }}>
       <Animated.View entering={FadeIn.duration(600)} style={{ flex: 1 }}>
         <ImageBackground
-          source={{ uri: SLIDE.image }}
+          source={WELCOME_HERO}
           style={{ flex: 1, width, height }}
           resizeMode="cover"
         />

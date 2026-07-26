@@ -11,6 +11,7 @@ import {
 } from '../utils/weatherOutfitFilter';
 import { withNormalizedCategories, normalizeCategory } from './outfitCategoryNormalize';
 import { scoreItemForSlot, ScoreContext } from './outfitScoring';
+import { scoreOutfitDimensions, clothingItemToScoringInput } from './outfitDimensionScoring';
 
 export interface OutfitGenerationContext {
   /** Canonical occasion key, e.g. Casual, Work — set by store from flow id */
@@ -24,6 +25,8 @@ export interface OutfitGenerationContext {
   /** Flow step style chip ids: minimal, classic, ... */
   flowStyleIds?: string[];
   paletteId?: string;
+  /** Force this wardrobe item into the generated outfit (Insights "Style this"). */
+  mustIncludeItemId?: string;
 }
 
 export interface OutfitVariation {
@@ -192,25 +195,33 @@ function buildScoreContext(context: OutfitGenerationContext): ScoreContext {
     styleBoostTerms: buildStyleBoostTerms(context),
     weather: context.weather,
     paletteId: context.paletteId,
+    occasionKey,
   };
 }
 
 function pickDressBasedOutfit(
   grouped: Record<string, ClothingItem[]>,
   scoreCtx: ScoreContext,
-  occasionLabel: string
+  forced: ClothingItem | null
 ): ClothingItem[] | null {
   const dresses = grouped['Dresses'] ?? [];
-  if (dresses.length === 0) return null;
+  if (dresses.length === 0 && normalizeCategory(forced?.category ?? '') !== 'Dresses') {
+    return null;
+  }
 
   const picked: ClothingItem[] = [];
-  const dress = pickBestInCategory(dresses, scoreCtx, picked);
+  const forcedIsDress = forced != null && normalizeCategory(forced.category) === 'Dresses';
+  const dress = forcedIsDress ? forced : pickBestInCategory(dresses, scoreCtx, picked);
   if (!dress) return null;
   picked.push(dress);
 
   const optionalSlots = ['Shoes', 'Outerwear', 'Accessories'] as const;
   for (const slot of optionalSlots) {
-    const list = grouped[slot] ?? [];
+    if (forced && !forcedIsDress && normalizeCategory(forced.category) === slot) {
+      picked.push(forced);
+      continue;
+    }
+    const list = (grouped[slot] ?? []).filter((item) => item.id !== forced?.id);
     const next = pickBestInCategory(list, scoreCtx, picked);
     if (next) picked.push(next);
   }
@@ -220,14 +231,25 @@ function pickDressBasedOutfit(
 
 function pickStandardOutfit(
   grouped: Record<string, ClothingItem[]>,
-  scoreCtx: ScoreContext
+  scoreCtx: ScoreContext,
+  forced: ClothingItem | null
 ): ClothingItem[] | null {
   const picked: ClothingItem[] = [];
+  const forcedCat = forced ? normalizeCategory(forced.category) : null;
 
   for (const slot of SLOT_ORDER) {
-    const list = grouped[slot] ?? [];
+    if (forced && forcedCat === slot) {
+      picked.push(forced);
+      continue;
+    }
+    const list = (grouped[slot] ?? []).filter((item) => item.id !== forced?.id);
     const next = pickBestInCategory(list, scoreCtx, picked);
     if (next) picked.push(next);
+  }
+
+  // Forced item outside core slots (e.g. odd category) — append if missing
+  if (forced && !picked.some((item) => item.id === forced.id)) {
+    picked.push(forced);
   }
 
   const cats = new Set(picked.map((i) => normalizeCategory(i.category)));
@@ -247,6 +269,11 @@ function meetsMinimumCoverage(items: ClothingItem[]): boolean {
   return cats.has('Tops') && cats.has('Bottoms');
 }
 
+function resolveForcedItem(pool: ClothingItem[], mustIncludeItemId?: string): ClothingItem | null {
+  if (!mustIncludeItemId) return null;
+  return pool.find((item) => item.id === mustIncludeItemId) ?? null;
+}
+
 function tryBuildOutfit(
   pool: ClothingItem[],
   context: OutfitGenerationContext
@@ -254,21 +281,23 @@ function tryBuildOutfit(
   const grouped = groupByCategory(pool);
   const scoreCtx = buildScoreContext(context);
   const occasionKey = context.occasionKey ?? 'Casual';
+  const forced = resolveForcedItem(pool, context.mustIncludeItemId);
+  const forcedIsDress = forced != null && normalizeCategory(forced.category) === 'Dresses';
 
-  if (prefersDressPath(occasionKey)) {
-    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, occasionKey);
+  if (forcedIsDress || prefersDressPath(occasionKey)) {
+    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, forced);
     if (dressOutfit && meetsMinimumCoverage(dressOutfit)) {
       return dressOutfit;
     }
   }
 
-  const standard = pickStandardOutfit(grouped, scoreCtx);
+  const standard = pickStandardOutfit(grouped, scoreCtx, forced);
   if (standard && meetsMinimumCoverage(standard)) {
     return standard;
   }
 
-  if ((grouped['Dresses'] ?? []).length > 0) {
-    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, occasionKey);
+  if ((grouped['Dresses'] ?? []).length > 0 || forcedIsDress) {
+    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, forced);
     if (dressOutfit && meetsMinimumCoverage(dressOutfit)) return dressOutfit;
   }
 
@@ -297,12 +326,31 @@ export function generateContextAwareOutfit(
 
   const normalized = withNormalizedCategories(active);
 
+  if (context.mustIncludeItemId) {
+    const mustExist = normalized.find((item) => item.id === context.mustIncludeItemId);
+    if (!mustExist) {
+      return failure(
+        'filters_too_strict',
+        'That item is no longer in your active wardrobe. Pull to refresh and try again.'
+      );
+    }
+  }
+
   let pool = filterPipeline(normalized, context, { skipOccasion: false });
   let usedRelaxed = false;
 
   if (pool.length === 0) {
     pool = filterPipeline(normalized, context, { skipOccasion: true });
     usedRelaxed = true;
+  }
+
+  // Always keep the anchored item in the pool even when filters would drop it.
+  if (context.mustIncludeItemId) {
+    const forced = normalized.find((item) => item.id === context.mustIncludeItemId);
+    if (forced && !pool.some((item) => item.id === forced.id)) {
+      pool = [...pool, forced];
+      usedRelaxed = true;
+    }
   }
 
   if (pool.length === 0) {
@@ -356,6 +404,53 @@ export function generateContextAwareOutfit(
   };
 
   return { ok: true, outfit, usedRelaxedFilters: usedRelaxed };
+}
+
+/**
+ * Generate up to `count` distinct ranked outfits from the wardrobe (local path).
+ */
+export function generateRankedOutfits(
+  items: ClothingItem[],
+  context: OutfitGenerationContext,
+  count: number = 3
+): OutfitGenerationResult[] {
+  const results: OutfitGenerationResult[] = [];
+  const usedItemIds = new Set<string>();
+  const max = Math.min(Math.max(count, 1), 5);
+
+  for (let i = 0; i < max; i++) {
+    const available = items.filter((item) => !usedItemIds.has(item.id));
+    const result = generateContextAwareOutfit(available, context);
+    if (!result.ok) break;
+
+    for (const item of result.outfit.items) {
+      usedItemIds.add(item.id);
+    }
+    results.push(result);
+  }
+
+  return results;
+}
+
+export function enrichOutfitWithDimensionScores(
+  outfit: Outfit,
+  context: OutfitGenerationContext
+): Outfit {
+  const styleTerms = buildStyleBoostTerms(context);
+  const occasionKey = context.occasionKey ?? 'Casual';
+  const inputs = outfit.items.map(clothingItemToScoringInput);
+  const scored = scoreOutfitDimensions(inputs, {
+    styleTerms,
+    weather: context.weather,
+    occasion: occasionKey,
+  });
+
+  return {
+    ...outfit,
+    fitScore: scored.composite,
+    fitReasoning: scored.reasoning,
+    styleMatchScore: scored.dimensions.styleProfile,
+  };
 }
 
 export const generateOutfitVariations = (

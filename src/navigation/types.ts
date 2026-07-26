@@ -33,7 +33,7 @@ export type ScanStackParamList = {
   TagReview:
     | { itemId?: string; imageUri?: string; aiConfidence?: number; aiCategory?: string }
     | undefined;
-  BatchSummary: undefined;
+  BatchScanQueue: { uris: string[] };
   SaveItemConfirmation:
     | { itemId?: string; imageUri?: string; category?: string; brand?: string; tags?: string[] }
     | undefined;
@@ -45,6 +45,7 @@ export type OutfitStackParamList = {
 };
 
 export type FeedStackParamList = {
+  /** Smart Insights feed (closet utilization + actionable cards) */
   StyleFeed: undefined;
   ClosetInsights: undefined;
   Recommendations: undefined;
@@ -63,6 +64,7 @@ export type ProfileStackParamList = {
   HelpCenter: undefined;
   About: undefined;
   TermsPrivacy: undefined;
+  StyleProfileEdit: undefined;
 };
 
 export type AuthStackParamList = {

@@ -6,6 +6,7 @@ const baseItem = (overrides: Partial<ClothingItem>): ClothingItem => ({
   imageUrl: 'https://example.com/i.jpg',
   category: 'Tops',
   colors: ['White'],
+  colorsHsl: [{ h: 0, s: 0, l: 96 }],
   tags: [],
   createdAt: new Date().toISOString(),
   status: 'active',

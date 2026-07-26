@@ -49,7 +49,7 @@ const getWeatherIcon = (iconCode: string): string => {
 const kelvinToFahrenheit = (kelvin: number): number => Math.round(((kelvin - 273.15) * 9) / 5 + 32);
 
 export const weatherService = {
-  /** Current weather via server-side proxy (cached 10m). Falls back to direct API or mock. */
+  /** Current weather via server-side proxy (cached 10m). Falls back to direct API. Returns null if live fetch fails. */
   getCurrentWeather: async (latitude: number, longitude: number): Promise<WeatherData | null> => {
     if (isSupabaseConfigured()) {
       try {
@@ -74,13 +74,13 @@ export const weatherService = {
     }
 
     try {
-      if (!OPENWEATHER_API_KEY) return getMockWeatherData();
+      if (!OPENWEATHER_API_KEY) return null;
 
       const response = await fetch(
         `${OPENWEATHER_BASE_URL}/weather?lat=${latitude}&lon=${longitude}&appid=${OPENWEATHER_API_KEY}`
       );
 
-      if (!response.ok) return getMockWeatherData();
+      if (!response.ok) return null;
 
       const data: OpenWeatherResponse = await response.json();
       return {
@@ -95,11 +95,11 @@ export const weatherService = {
       };
     } catch (error) {
       if (__DEV__) console.error('Error fetching weather:', error);
-      return getMockWeatherData();
+      return null;
     }
   },
 
-  /** 7-day forecast via server-side proxy. */
+  /** 7-day forecast via server-side proxy. Returns [] if live fetch fails. */
   getForecast: async (latitude: number, longitude: number): Promise<WeatherForecast[]> => {
     if (isSupabaseConfigured()) {
       try {
@@ -122,12 +122,12 @@ export const weatherService = {
     }
 
     try {
-      if (!OPENWEATHER_API_KEY) return getMockForecast();
+      if (!OPENWEATHER_API_KEY) return [];
 
       const response = await fetch(
         `${OPENWEATHER_BASE_URL}/forecast?lat=${latitude}&lon=${longitude}&appid=${OPENWEATHER_API_KEY}`
       );
-      if (!response.ok) return getMockForecast();
+      if (!response.ok) return [];
 
       const data: OpenWeatherForecastResponse = await response.json();
       const dailyForecasts: Record<string, WeatherForecast> = {};
@@ -153,7 +153,7 @@ export const weatherService = {
       return Object.values(dailyForecasts).slice(0, 7);
     } catch (error) {
       if (__DEV__) console.error('Error fetching forecast:', error);
-      return getMockForecast();
+      return [];
     }
   },
 
@@ -181,45 +181,3 @@ export const weatherService = {
     }
   },
 };
-
-function getMockWeatherData(): WeatherData {
-  // Mock data is displayed when no API key is configured or all weather sources fail.
-  // Callers see "Accra, GH" so the demo makes geographic sense for the West African user base.
-  console.warn(
-    '[weatherService] Using mock weather data — configure EXPO_PUBLIC_OPENWEATHER_API_KEY for real weather.'
-  );
-  const hour = new Date().getHours();
-  const isDaytime = hour >= 6 && hour < 20;
-  // Accra baseline: warm and humid year-round (~86°F / 30°C)
-  const temperature = 86 + Math.floor(Math.random() * 6) - 3;
-  return {
-    temperature,
-    condition: 'Clear',
-    description: 'clear sky',
-    humidity: 75,
-    windSpeed: 10,
-    icon: isDaytime ? 'sunny' : 'moon',
-    feelsLike: temperature + 2,
-    location: 'Accra, GH',
-  };
-}
-
-function getMockForecast(): WeatherForecast[] {
-  const forecasts: WeatherForecast[] = [];
-  const today = new Date();
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    const baseTemp = 72;
-    const variation = Math.floor(Math.random() * 15) - 7;
-    forecasts.push({
-      date: date.toISOString(),
-      high: baseTemp + variation + 5,
-      low: baseTemp + variation - 5,
-      condition: i % 3 === 0 ? 'Clouds' : 'Clear',
-      icon: i % 3 === 0 ? 'cloudy' : 'sunny',
-      chanceOfRain: i === 2 || i === 5 ? 30 : undefined,
-    });
-  }
-  return forecasts;
-}

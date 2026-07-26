@@ -227,31 +227,20 @@ const ItemPreviewCard = ({ imageUri, category, brand, tags }: any) => {
 export const SaveItemConfirmationScreen = ({ navigation, route }: any) => {
   const { currentTheme } = useThemeStore();
   const params = route.params || {};
-  const imageUri: string = params.imageUri || 'https://via.placeholder.com/400';
+  const imageUri: string = typeof params.imageUri === 'string' ? params.imageUri : '';
   const category: string = params.category || 'Top';
   const brand: string | undefined = params.brand;
   const tags: string[] = params.tags || [];
   const itemId: string | undefined = params.itemId;
 
-  const { items, addItem, fetchItems } = useWardrobeStore();
+  const { items, fetchItems } = useWardrobeStore();
   const { clearQueue } = useScanStore();
 
   useEffect(() => {
+    // Only refresh from the live wardrobe — never invent a local row.
     if (isSupabaseConfigured() && itemId) {
-      // Row was persisted upstream; just refresh the wardrobe from backend.
-      fetchItems();
-      return;
+      void fetchItems();
     }
-    // Offline / mock mode: keep the local append.
-    addItem({
-      imageUrl: imageUri,
-      category,
-      brand,
-      tags,
-      colors: [],
-      wornCount: 0,
-      status: 'active',
-    });
   }, []);
 
   const { totalItems, addedToday } = useMemo(() => {

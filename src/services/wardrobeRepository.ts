@@ -1,4 +1,6 @@
 import type { ClothingItem } from '../types';
+import type { HslColor } from '../utils/hslColor';
+import { hslToDisplayName, namedColorsToHsl, parseHslArray } from '../utils/hslColor';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 
 export type ClothingRow = {
@@ -8,6 +10,7 @@ export type ClothingRow = {
   category: string;
   sub_category: string | null;
   colors: string[] | null;
+  colors_hsl: HslColor[] | null;
   brand: string | null;
   tags: string[] | null;
   notes: string | null;
@@ -17,6 +20,8 @@ export type ClothingRow = {
   last_worn: string | null;
   created_at: string;
   formality_score: number | null;
+  material: string | null;
+  pattern: string | null;
 };
 
 export type ClothingItemInsert = {
@@ -44,12 +49,16 @@ export async function signedUrlForItemPath(path: string): Promise<string> {
 }
 
 function rowToItem(row: ClothingRow, imageUrl: string): ClothingItem {
+  const hsl = parseHslArray(row.colors_hsl);
+  const colors = hsl.length > 0 ? hsl.map(hslToDisplayName) : (row.colors ?? []);
+
   return {
     id: row.id,
     imageUrl,
     category: row.category,
     subCategory: row.sub_category ?? undefined,
-    colors: row.colors ?? [],
+    colors,
+    colorsHsl: hsl.length > 0 ? hsl : namedColorsToHsl(row.colors ?? []),
     brand: row.brand ?? undefined,
     tags: row.tags ?? [],
     notes: row.notes ?? undefined,
@@ -59,6 +68,8 @@ function rowToItem(row: ClothingRow, imageUrl: string): ClothingItem {
     lastWorn: row.last_worn ?? undefined,
     createdAt: row.created_at,
     formalityScore: row.formality_score ?? undefined,
+    material: row.material ?? undefined,
+    pattern: row.pattern ?? undefined,
   };
 }
 
@@ -135,7 +146,61 @@ export async function updateClothingItem(
   return data as ClothingRow;
 }
 
-/** Returns remote items, or null when Supabase is not configured (caller keeps mocks). */
+/** Map client ClothingItem partial updates to a Supabase row patch. */
+export function clothingItemUpdatesToPatch(updates: Partial<ClothingItem>): ClothingItemUpdate {
+  const patch: ClothingItemUpdate = {};
+  if (updates.category !== undefined) patch.category = updates.category;
+  if (updates.subCategory !== undefined) patch.sub_category = updates.subCategory ?? null;
+  if (updates.colors !== undefined) {
+    patch.colors = updates.colors;
+    if (updates.colorsHsl !== undefined) {
+      patch.colors_hsl = updates.colorsHsl;
+    }
+  }
+  if (updates.colorsHsl !== undefined && updates.colors === undefined) {
+    patch.colors_hsl = updates.colorsHsl;
+    patch.colors = updates.colorsHsl.map(hslToDisplayName);
+  }
+  if (updates.brand !== undefined) patch.brand = updates.brand ?? null;
+  if (updates.tags !== undefined) patch.tags = updates.tags;
+  if (updates.notes !== undefined) patch.notes = updates.notes ?? null;
+  if (updates.season !== undefined) {
+    patch.season = updates.season.map((s) => s.toLowerCase());
+  }
+  if (updates.status !== undefined) patch.status = updates.status;
+  if (updates.wornCount !== undefined) patch.worn_count = updates.wornCount;
+  if (updates.lastWorn !== undefined) patch.last_worn = updates.lastWorn ?? null;
+  if (updates.formalityScore !== undefined) patch.formality_score = updates.formalityScore;
+  if (updates.material !== undefined) patch.material = updates.material ?? null;
+  if (updates.pattern !== undefined) patch.pattern = updates.pattern ?? null;
+  return patch;
+}
+
+/**
+ * Delete a wardrobe row and its storage object when configured.
+ */
+export async function deleteClothingItem(id: string): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  const row = await fetchClothingItemById(id);
+  if (!row) return;
+
+  const { error: deleteError } = await supabase.from('clothing_items').delete().eq('id', id);
+  if (deleteError) throw deleteError;
+
+  if (row.image_path) {
+    const { error: storageError } = await supabase.storage
+      .from('item-photos')
+      .remove([row.image_path]);
+    if (storageError && __DEV__) {
+      console.warn('[deleteClothingItem] storage remove failed:', storageError.message);
+    }
+  }
+}
+
+/** Returns remote items, or null when Supabase is not configured (caller shows empty wardrobe). */
 export async function fetchWardrobeItemsRemote(): Promise<ClothingItem[] | null> {
   if (!isSupabaseConfigured()) {
     return null;

@@ -1,94 +1,56 @@
 /**
- * Style feed (tab root) — inspiration + momentum, not duplicate shopping lists.
+ * Insights feed — closet utilization + actionable usage cards.
  *
- * Module map (vs Recommendations / "Shopping & gaps"):
- * - Feed-only: editorial carousel, outfit collage from saved outfits, generate CTA, stats row.
- * - Link to Recs: single "Shopping & gaps" teaser (no ranked purchase cards here).
- * - Recommendations screen owns: style gaps, ranked shop list, complete-the-look tooling, thumbs.
+ * No social feed, no editorial carousel, no auto outfit generation.
+ * "Style this" generates a rule-based look anchored to the card item,
+ * then navigates to OutfitLoading → Outfit Result.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, TouchableOpacity, RefreshControl, ScrollView, Dimensions } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, TouchableOpacity, RefreshControl, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import { Typography, Card, StyledView } from '../../components/common';
 import { useTabScreenPadding } from '../../hooks/useTabScreenPadding';
 import { theme } from '../../theme';
 import { useThemeStore } from '../../store/useThemeStore';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
 import { useOutfitStore } from '../../store/useOutfitStore';
-import type { Outfit } from '../../types';
-import { functionsClient, type FeedPost } from '../../services/functionsClient';
-import { isSupabaseConfigured } from '../../services/supabase';
-
-const { width: windowWidth } = Dimensions.get('window');
-
-const EDITORIAL_SPOTS = [
-  {
-    id: 'e1',
-    title: 'Spring layering',
-    subtitle: 'Light jackets over breathable tops',
-    tint: ['#4338CA', '#6366F1'] as const,
-  },
-  {
-    id: 'e2',
-    title: 'Weekend uniform',
-    subtitle: 'Denim, sneakers, one statement piece',
-    tint: ['#0D9488', '#14B8A6'] as const,
-  },
-  {
-    id: 'e3',
-    title: 'Quiet luxury',
-    subtitle: 'Texture, neutrals, one metal accent',
-    tint: ['#1C1917', '#57534E'] as const,
-  },
-];
+import {
+  buildClosetInsights,
+  CUR_WINDOW_DAYS,
+  type InsightCard,
+  type ClosetUtilization,
+} from '../../services/closetInsightsService';
 
 type Props = { navigation: any };
 
+const KIND_ICON: Record<InsightCard['kind'], keyof typeof Ionicons.glyphMap> = {
+  challenge: 'trophy-outline',
+  hidden_gem: 'diamond-outline',
+  neglected: 'time-outline',
+  rotation: 'sync-outline',
+  milestone: 'ribbon-outline',
+};
+
 export const StyleFeedScreen = ({ navigation }: Props) => {
   const { items, fetchItems } = useWardrobeStore();
-  const { outfits } = useOutfitStore();
+  const { generateOutfit } = useOutfitStore();
   const { currentTheme } = useThemeStore();
   const tabPadding = useTabScreenPadding();
   const [refreshing, setRefreshing] = useState(false);
-  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
-  const [feedScope, setFeedScope] = useState<'following' | 'public'>('following');
-  const [feedLoading, setFeedLoading] = useState(false);
-  const [feedError, setFeedError] = useState<string | null>(null);
+  const [stylingCardId, setStylingCardId] = useState<string | null>(null);
 
-  const previewOutfits = useMemo(() => outfits.slice(0, 8), [outfits]);
-
-  const loadFeed = useCallback(async (scope: 'following' | 'public') => {
-    if (!isSupabaseConfigured()) {
-      setFeedPosts([]);
-      return;
-    }
-    setFeedLoading(true);
-    setFeedError(null);
-    try {
-      const res = await functionsClient.feedList({ scope, limit: 20 });
-      setFeedPosts(res.posts ?? []);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Could not load the feed.';
-      if (__DEV__) console.warn('[StyleFeed] feedList', err);
-      setFeedError(message);
-      setFeedPosts([]);
-    } finally {
-      setFeedLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadFeed(feedScope);
-  }, [feedScope, loadFeed]);
+  const insights = useMemo(() => buildClosetInsights(items), [items]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchItems(), loadFeed(feedScope)]);
-    setRefreshing(false);
-  }, [fetchItems, feedScope, loadFeed]);
+    try {
+      await fetchItems();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchItems]);
 
   const goRoot = (route: string, params?: object) => {
     navigation
@@ -97,9 +59,21 @@ export const StyleFeedScreen = ({ navigation }: Props) => {
       ?.navigate(route as never, params as never);
   };
 
+  const handleStyleThis = (card: InsightCard) => {
+    if (!card.anchorItemId || stylingCardId) return;
+    setStylingCardId(card.id);
+    // Fire generation first (clears prior generatedOutfit + sets isGenerating), then loading UI.
+    void generateOutfit({
+      mustIncludeItemId: card.anchorItemId,
+      occasion: 'casual',
+    }).finally(() => setStylingCardId(null));
+    goRoot('OutfitLoading');
+  };
+
   const textPrimary = currentTheme.colors.text;
   const textSecondary = currentTheme.colors.textSecondary;
   const surface = currentTheme.colors.surface;
+  const border = currentTheme.colors.border;
 
   return (
     <View style={{ flex: 1, backgroundColor: currentTheme.colors.background }}>
@@ -123,584 +97,358 @@ export const StyleFeedScreen = ({ navigation }: Props) => {
             variant="header"
             style={{ color: textPrimary, fontSize: 34, fontWeight: '700' }}
           >
-            Style
+            Insights
           </Typography>
           <Typography style={{ color: textSecondary, marginTop: 6, fontSize: 16 }}>
-            Inspiration and outfits from your closet
+            Your closet, tracked
           </Typography>
-        </StyledView>
-
-        {/* Editorial-first hero */}
-        <Typography
-          style={{ color: textPrimary, fontWeight: '600', fontSize: 20, marginBottom: 12 }}
-        >
-          Inspiration
-        </Typography>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 24 }}>
-          {EDITORIAL_SPOTS.map((spot, i) => (
-            <Animated.View key={spot.id} entering={FadeInDown.delay(i * 80)}>
-              <LinearGradient
-                colors={[spot.tint[0], spot.tint[1]]}
-                style={{
-                  width: windowWidth * 0.78,
-                  borderRadius: 20,
-                  padding: 22,
-                  marginRight: 12,
-                  minHeight: 140,
-                  justifyContent: 'flex-end',
-                }}
-              >
-                <Typography style={{ color: '#FFF', fontWeight: '700', fontSize: 20 }}>
-                  {spot.title}
-                </Typography>
-                <Typography
-                  style={{
-                    color: 'rgba(255,255,255,0.92)',
-                    marginTop: 6,
-                    fontSize: 15,
-                    lineHeight: 20,
-                  }}
-                >
-                  {spot.subtitle}
-                </Typography>
-              </LinearGradient>
-            </Animated.View>
-          ))}
-        </ScrollView>
-
-        {/* Quick stats */}
-        <Animated.View entering={FadeInDown.duration(400)}>
-          <StyledView style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('ClosetInsights')}
-              style={{
-                flex: 1,
-                padding: 16,
-                borderRadius: 16,
-                backgroundColor: surface,
-                borderWidth: 1,
-                borderColor: currentTheme.colors.border,
-              }}
-            >
-              <Typography style={{ color: textSecondary, fontSize: 12 }}>Items</Typography>
-              <Typography style={{ color: textPrimary, fontSize: 22, fontWeight: '700' }}>
-                {items.length}
-              </Typography>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() =>
-                navigation.getParent()?.navigate('OutfitsStack', { screen: 'OutfitHome' })
-              }
-              style={{
-                flex: 1,
-                padding: 16,
-                borderRadius: 16,
-                backgroundColor: surface,
-                borderWidth: 1,
-                borderColor: currentTheme.colors.border,
-              }}
-            >
-              <Typography style={{ color: textSecondary, fontSize: 12 }}>Outfits</Typography>
-              <Typography style={{ color: textPrimary, fontSize: 22, fontWeight: '700' }}>
-                {outfits.length}
-              </Typography>
-            </TouchableOpacity>
-          </StyledView>
-        </Animated.View>
-
-        {/* Primary CTA — outfit generation */}
-        <TouchableOpacity
-          onPress={() => goRoot('GenerateOutfitFlow')}
-          activeOpacity={0.9}
-          style={{ marginBottom: 28 }}
-        >
-          <LinearGradient
-            colors={[theme.colors.primary, '#2D2F33']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={{
-              borderRadius: 20,
-              padding: 20,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <StyledView style={{ flex: 1 }}>
-              <Typography
-                style={{ color: theme.colors.secondary, fontWeight: '700', fontSize: 18 }}
-              >
-                Generate an outfit
-              </Typography>
-              <Typography style={{ color: 'rgba(255,255,255,0.85)', marginTop: 4, fontSize: 14 }}>
-                Uses your closet, style, and weather
-              </Typography>
-            </StyledView>
-            <Ionicons name={'flash' as never} size={28} color={theme.colors.secondary} />
-          </LinearGradient>
-        </TouchableOpacity>
-
-        {/* From your closet — saved outfits only (no purchase ranks, no CTL duplicate) */}
-        <StyledView
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 12,
-          }}
-        >
-          <Typography style={{ color: textPrimary, fontWeight: '600', fontSize: 20 }}>
-            From your closet
-          </Typography>
-          {previewOutfits.length > 0 && (
-            <TouchableOpacity
-              onPress={() =>
-                navigation.getParent()?.navigate('OutfitsStack', { screen: 'OutfitHome' })
-              }
-            >
-              <Typography style={{ color: theme.colors.accent, fontWeight: '600', fontSize: 15 }}>
-                See all
-              </Typography>
-            </TouchableOpacity>
-          )}
         </StyledView>
 
         {items.length === 0 ? (
-          <Card className="p-5 mb-6" style={{ backgroundColor: surface }}>
-            <StyledView style={{ alignItems: 'center' }}>
-              <Ionicons name="shirt-outline" size={40} color={textSecondary} />
-              <Typography
-                style={{
-                  color: textPrimary,
-                  marginTop: 12,
-                  textAlign: 'center',
-                  fontWeight: '600',
-                }}
-              >
-                Add pieces to build outfits here
-              </Typography>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.getParent()?.navigate('ScanStack', { screen: 'LiveCameraScan' })
-                }
-                style={{
-                  marginTop: 16,
-                  paddingVertical: 12,
-                  paddingHorizontal: 20,
-                  backgroundColor: theme.colors.primary,
-                  borderRadius: 12,
-                }}
-              >
-                <Typography style={{ color: '#FFF', fontWeight: '600' }}>Scan an item</Typography>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('Recommendations')}
-                style={{ marginTop: 16 }}
-              >
-                <Typography style={{ color: theme.colors.accent, fontWeight: '600', fontSize: 15 }}>
-                  Shopping & gaps — what to add next
-                </Typography>
-              </TouchableOpacity>
-            </StyledView>
-          </Card>
-        ) : previewOutfits.length === 0 ? (
-          <Card className="p-5 mb-6" style={{ backgroundColor: surface }}>
-            <Typography
-              style={{ color: textSecondary, fontSize: 15, textAlign: 'center', marginBottom: 12 }}
-            >
-              Save outfits from Generate or Create to see them here.
-            </Typography>
-            <TouchableOpacity
-              onPress={() => goRoot('GenerateOutfitFlow')}
-              style={{ alignItems: 'center' }}
-            >
-              <Typography style={{ color: theme.colors.accent, fontWeight: '600' }}>
-                Generate your first look
-              </Typography>
-            </TouchableOpacity>
-          </Card>
+          <EmptyWardrobeCard
+            surface={surface}
+            textPrimary={textPrimary}
+            textSecondary={textSecondary}
+            onScan={() =>
+              navigation.getParent()?.navigate('ScanStack', { screen: 'LiveCameraScan' })
+            }
+          />
         ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginBottom: 28 }}
-          >
-            {previewOutfits.map((outfit, i) => (
-              <OutfitPreviewCard
-                key={outfit.id}
-                outfit={outfit}
-                index={i}
-                onPress={() => goRoot('OutfitResult', { outfitId: outfit.id })}
-                textPrimary={textPrimary}
-                textSecondary={textSecondary}
-                surface={surface}
-                currentTheme={currentTheme}
-              />
-            ))}
-          </ScrollView>
-        )}
+          <>
+            <UtilizationHero
+              utilization={insights.utilization}
+              surface={surface}
+              border={border}
+              textPrimary={textPrimary}
+              textSecondary={textSecondary}
+              onSeeAll={() => navigation.navigate('ClosetInsights')}
+              onStyleChallenge={
+                insights.utilization.challengeItem
+                  ? () => {
+                      const challenge = insights.cards.find((c) => c.kind === 'challenge');
+                      if (challenge) handleStyleThis(challenge);
+                    }
+                  : undefined
+              }
+              isStyling={stylingCardId?.startsWith('challenge-') ?? false}
+            />
 
-        {/* Community feed — others' outfits */}
-        <StyledView
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 12,
-          }}
-        >
-          <Typography style={{ color: textPrimary, fontWeight: '600', fontSize: 20 }}>
-            From the community
-          </Typography>
-          <StyledView style={{ flexDirection: 'row', gap: 6 }}>
-            {(['following', 'public'] as const).map((scope) => (
-              <TouchableOpacity
-                key={scope}
-                onPress={() => setFeedScope(scope)}
-                accessibilityRole="button"
-                accessibilityLabel={`Show ${scope} feed`}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 14,
-                  backgroundColor: feedScope === scope ? theme.colors.primary : surface,
-                  borderWidth: 1,
-                  borderColor:
-                    feedScope === scope ? theme.colors.primary : currentTheme.colors.border,
-                }}
-              >
-                <Typography
-                  style={{
-                    color: feedScope === scope ? '#FFFFFF' : textSecondary,
-                    fontSize: 12,
-                    fontWeight: '600',
-                    textTransform: 'capitalize',
-                  }}
-                >
-                  {scope}
-                </Typography>
-              </TouchableOpacity>
-            ))}
-          </StyledView>
-        </StyledView>
-
-        {feedLoading ? (
-          <Card className="p-5 mb-6" style={{ backgroundColor: surface }}>
-            <Typography style={{ color: textSecondary, fontSize: 14, textAlign: 'center' }}>
-              Loading the feed…
-            </Typography>
-          </Card>
-        ) : feedError ? (
-          <Card className="p-5 mb-6" style={{ backgroundColor: surface }}>
             <Typography
-              style={{ color: textSecondary, fontSize: 14, textAlign: 'center', marginBottom: 8 }}
-            >
-              {feedError}
-            </Typography>
-            <TouchableOpacity onPress={() => loadFeed(feedScope)} style={{ alignItems: 'center' }}>
-              <Typography style={{ color: theme.colors.accent, fontWeight: '600' }}>
-                Retry
-              </Typography>
-            </TouchableOpacity>
-          </Card>
-        ) : feedPosts.length === 0 ? (
-          <Card className="p-5 mb-6" style={{ backgroundColor: surface }}>
-            <StyledView style={{ alignItems: 'center' }}>
-              <Ionicons name="people-outline" size={32} color={textSecondary} />
-              <Typography
-                style={{
-                  color: textPrimary,
-                  marginTop: 10,
-                  textAlign: 'center',
-                  fontWeight: '600',
-                }}
-              >
-                {feedScope === 'following'
-                  ? 'No posts yet from people you follow'
-                  : 'No public posts yet'}
-              </Typography>
-              <Typography
-                style={{ color: textSecondary, marginTop: 6, fontSize: 13, textAlign: 'center' }}
-              >
-                {feedScope === 'following'
-                  ? 'Switch to Public to see what the wider community is wearing.'
-                  : 'Be the first to share an outfit.'}
-              </Typography>
-            </StyledView>
-          </Card>
-        ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginBottom: 24 }}
-          >
-            {feedPosts.map((post, i) => (
-              <FeedPostCard
-                key={post.post_id}
-                post={post}
-                index={i}
-                textPrimary={textPrimary}
-                textSecondary={textSecondary}
-                surface={surface}
-                borderColor={currentTheme.colors.border}
-              />
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Single teaser — shopping & gaps live on Recommendations screen */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Recommendations')}
-          activeOpacity={0.85}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: 18,
-            borderRadius: 16,
-            backgroundColor: surface,
-            borderWidth: 1,
-            borderColor: currentTheme.colors.border,
-            marginBottom: 16,
-          }}
-        >
-          <StyledView style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
-            <View
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                backgroundColor: theme.colors.secondary + '44',
-                alignItems: 'center',
-                justifyContent: 'center',
+                color: textPrimary,
+                fontWeight: '600',
+                fontSize: 20,
+                marginBottom: 12,
+                marginTop: 8,
               }}
             >
-              <Ionicons
-                name={'bag-handle-outline' as never}
-                size={22}
-                color={theme.colors.primary}
-              />
-            </View>
-            <StyledView style={{ flex: 1 }}>
-              <Typography style={{ color: textPrimary, fontWeight: '600', fontSize: 17 }}>
-                Shopping & gaps
-              </Typography>
-              <Typography style={{ color: textSecondary, fontSize: 14 }} numberOfLines={2}>
-                Style gaps, pairings, and purchase ideas
-              </Typography>
-            </StyledView>
-          </StyledView>
-          <Ionicons name="chevron-forward" size={20} color={textSecondary} />
-        </TouchableOpacity>
+              For you
+            </Typography>
 
-        {/* Closet insights */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate('ClosetInsights')}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: 18,
-            borderRadius: 16,
-            backgroundColor: surface,
-            borderWidth: 1,
-            borderColor: currentTheme.colors.border,
-            marginBottom: 16,
-          }}
-        >
-          <StyledView style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                backgroundColor: theme.colors.accent + '22',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Ionicons name="stats-chart" size={22} color={theme.colors.accent} />
-            </View>
-            <StyledView>
-              <Typography style={{ color: textPrimary, fontWeight: '600', fontSize: 17 }}>
-                Closet insights
-              </Typography>
-              <Typography style={{ color: textSecondary, fontSize: 14 }}>
-                Categories, most worn, composition
-              </Typography>
-            </StyledView>
-          </StyledView>
-          <Ionicons name="chevron-forward" size={20} color={textSecondary} />
-        </TouchableOpacity>
+            {insights.cards.length === 0 ? (
+              <Card className="p-5 mb-6" style={{ backgroundColor: surface }}>
+                <Typography style={{ color: textSecondary, fontSize: 15, lineHeight: 22 }}>
+                  Keep logging wears from Today or Outfit Result — personalized challenges will
+                  appear here.
+                </Typography>
+              </Card>
+            ) : (
+              insights.cards.map((card, index) => (
+                <InsightCardRow
+                  key={card.id}
+                  card={card}
+                  index={index}
+                  surface={surface}
+                  border={border}
+                  textPrimary={textPrimary}
+                  textSecondary={textSecondary}
+                  isStyling={stylingCardId === card.id}
+                  onStyleThis={() => handleStyleThis(card)}
+                />
+              ))
+            )}
+          </>
+        )}
       </ScrollView>
     </View>
   );
 };
 
-const OUTFIT_CARD_W = windowWidth * 0.72;
-const FEED_CARD_W = windowWidth * 0.62;
+/** @deprecated alias — screen is the Insights feed */
+export const InsightsFeedScreen = StyleFeedScreen;
 
-function FeedPostCard({
-  post,
-  index,
-  textPrimary,
-  textSecondary,
-  surface,
-  borderColor,
-}: {
-  post: FeedPost;
-  index: number;
+interface ThemeBits {
+  surface: string;
+  border?: string;
   textPrimary: string;
   textSecondary: string;
-  surface: string;
-  borderColor: string;
+}
+
+function EmptyWardrobeCard({
+  surface,
+  textPrimary,
+  textSecondary,
+  onScan,
+}: ThemeBits & { onScan: () => void }) {
+  return (
+    <Card className="p-5 mb-6" style={{ backgroundColor: surface }}>
+      <StyledView style={{ alignItems: 'center' }}>
+        <Ionicons name="shirt-outline" size={40} color={textSecondary} />
+        <Typography
+          style={{
+            color: textPrimary,
+            marginTop: 12,
+            textAlign: 'center',
+            fontWeight: '600',
+            fontSize: 17,
+          }}
+        >
+          Scan your first pieces to start tracking usage
+        </Typography>
+        <Typography
+          style={{
+            color: textSecondary,
+            marginTop: 8,
+            textAlign: 'center',
+            fontSize: 14,
+            lineHeight: 20,
+          }}
+        >
+          Closet utilization and styling challenges appear once items are in your wardrobe.
+        </Typography>
+        <TouchableOpacity
+          onPress={onScan}
+          style={{
+            marginTop: 16,
+            paddingVertical: 12,
+            paddingHorizontal: 20,
+            backgroundColor: theme.colors.primary,
+            borderRadius: 12,
+          }}
+        >
+          <Typography style={{ color: '#FFF', fontWeight: '600' }}>Scan an item</Typography>
+        </TouchableOpacity>
+      </StyledView>
+    </Card>
+  );
+}
+
+function UtilizationHero({
+  utilization,
+  surface,
+  border,
+  textPrimary,
+  textSecondary,
+  onSeeAll,
+  onStyleChallenge,
+  isStyling,
+}: ThemeBits & {
+  utilization: ClosetUtilization;
+  onSeeAll: () => void;
+  onStyleChallenge?: () => void;
+  isStyling: boolean;
 }) {
-  const createdLabel = useMemo(() => formatRelativeShort(post.created_at), [post.created_at]);
+  const rateLabel = utilization.ratePercent == null ? '—' : `${utilization.ratePercent}%`;
 
   return (
-    <Animated.View entering={FadeInDown.delay(index * 60)} style={{ marginRight: 12 }}>
-      <StyledView
+    <Animated.View entering={FadeInDown.duration(400)} style={{ marginBottom: 20 }}>
+      <View
         style={{
-          width: FEED_CARD_W,
-          borderRadius: 18,
-          overflow: 'hidden',
           backgroundColor: surface,
+          borderRadius: 20,
+          padding: 20,
           borderWidth: 1,
-          borderColor,
+          borderColor: border,
         }}
       >
-        {post.image_signed_url ? (
-          <Image
-            source={{ uri: post.image_signed_url }}
-            style={{ width: '100%', height: FEED_CARD_W * 1.1 }}
-            contentFit="cover"
-          />
-        ) : (
-          <StyledView
+        <StyledView
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+          }}
+        >
+          <StyledView style={{ flex: 1, paddingRight: 12 }}>
+            <Typography
+              style={{
+                color: textSecondary,
+                fontSize: 12,
+                fontWeight: '600',
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+              }}
+            >
+              Closet utilization
+            </Typography>
+            <Typography
+              style={{ color: textPrimary, fontSize: 40, fontWeight: '700', marginTop: 4 }}
+            >
+              {rateLabel}
+            </Typography>
+            <Typography
+              style={{ color: textSecondary, fontSize: 14, marginTop: 4, lineHeight: 20 }}
+            >
+              {utilization.activeCount === 0
+                ? 'Add items to measure usage'
+                : `${utilization.usedCount} of ${utilization.activeCount} active pieces worn in the last ${CUR_WINDOW_DAYS} days`}
+            </Typography>
+          </StyledView>
+          <View
             style={{
-              width: '100%',
-              height: FEED_CARD_W * 1.1,
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: theme.colors.accent + '18',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <Ionicons name="image-outline" size={36} color={textSecondary} />
-          </StyledView>
-        )}
-        <StyledView style={{ padding: 14 }}>
-          <Typography
-            style={{ color: textPrimary, fontWeight: '600', fontSize: 15 }}
-            numberOfLines={2}
-          >
-            {post.caption?.trim() || 'Untitled look'}
-          </Typography>
-          <StyledView
+            <Ionicons name="pie-chart-outline" size={24} color={theme.colors.accent} />
+          </View>
+        </StyledView>
+
+        {utilization.challengeItem &&
+          utilization.nextTargetPercent != null &&
+          utilization.ratePercent != null &&
+          utilization.nextTargetPercent > utilization.ratePercent && (
+            <Typography style={{ color: textPrimary, fontSize: 14, marginTop: 14, lineHeight: 20 }}>
+              Wear one more unused piece to reach {utilization.nextTargetPercent}%.
+            </Typography>
+          )}
+
+        <StyledView style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+          {onStyleChallenge && (
+            <TouchableOpacity
+              onPress={onStyleChallenge}
+              disabled={isStyling}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: theme.colors.primary,
+                alignItems: 'center',
+                opacity: isStyling ? 0.6 : 1,
+              }}
+            >
+              <Typography style={{ color: '#FFF', fontWeight: '600', fontSize: 15 }}>
+                {isStyling ? 'Styling…' : 'Style this'}
+              </Typography>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={onSeeAll}
             style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
+              flex: onStyleChallenge ? 1 : undefined,
+              paddingVertical: 12,
+              paddingHorizontal: onStyleChallenge ? 0 : 16,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: border,
               alignItems: 'center',
-              marginTop: 8,
             }}
           >
-            <Typography style={{ color: textSecondary, fontSize: 12 }}>{createdLabel}</Typography>
-            <StyledView style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Ionicons
-                name={post.liked_by_me ? 'heart' : 'heart-outline'}
-                size={14}
-                color={post.liked_by_me ? '#EF4444' : textSecondary}
-              />
-              <Typography style={{ color: textSecondary, fontSize: 12 }}>
-                {post.likes_count ?? 0}
-              </Typography>
-            </StyledView>
-          </StyledView>
+            <Typography style={{ color: textPrimary, fontWeight: '600', fontSize: 15 }}>
+              Full stats
+            </Typography>
+          </TouchableOpacity>
         </StyledView>
-      </StyledView>
+      </View>
     </Animated.View>
   );
 }
 
-function formatRelativeShort(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffSec = Math.max(0, (Date.now() - then) / 1000);
-  if (diffSec < 60) return 'just now';
-  const min = Math.floor(diffSec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const days = Math.floor(hr / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
-function OutfitPreviewCard({
-  outfit,
+function InsightCardRow({
+  card,
   index,
-  onPress,
+  surface,
+  border,
   textPrimary,
   textSecondary,
-  surface,
-  currentTheme,
-}: {
-  outfit: Outfit;
+  isStyling,
+  onStyleThis,
+}: ThemeBits & {
+  card: InsightCard;
   index: number;
-  onPress: () => void;
-  textPrimary: string;
-  textSecondary: string;
-  surface: string;
-  currentTheme: { colors: { border: string; background: string } };
+  isStyling: boolean;
+  onStyleThis: () => void;
 }) {
-  const thumbs = outfit.items?.slice(0, 3) ?? [];
+  const icon = KIND_ICON[card.kind];
 
   return (
-    <Animated.View entering={FadeInDown.delay(index * 60)} style={{ marginRight: 12 }}>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={{ width: OUTFIT_CARD_W }}>
-        <StyledView
-          style={{
-            borderRadius: 16,
-            overflow: 'hidden',
-            backgroundColor: surface,
-            borderWidth: 1,
-            borderColor: currentTheme.colors.border,
-          }}
-        >
-          <StyledView style={{ flexDirection: 'row', height: 112 }}>
-            {thumbs.map((item, i) => (
-              <View
-                key={item.id + String(i)}
-                style={{
-                  flex: 1,
-                  borderRightWidth: i < thumbs.length - 1 ? 1 : 0,
-                  borderRightColor: currentTheme.colors.border,
-                }}
-              >
-                <Image
-                  source={{ uri: item.imageUrl }}
-                  style={{ width: '100%', height: '100%' }}
-                  contentFit="cover"
-                />
-              </View>
-            ))}
-          </StyledView>
-          <StyledView style={{ padding: 14 }}>
-            <Typography
-              style={{ color: textPrimary, fontWeight: '700', fontSize: 16 }}
-              numberOfLines={1}
+    <Animated.View
+      entering={FadeInDown.duration(400).delay(index * 60)}
+      style={{ marginBottom: 12 }}
+    >
+      <View
+        style={{
+          backgroundColor: surface,
+          borderRadius: 16,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: border,
+        }}
+      >
+        <StyledView style={{ flexDirection: 'row', gap: 12 }}>
+          {card.imageUrl ? (
+            <Image
+              source={{ uri: card.imageUrl }}
+              style={{ width: 56, height: 72, borderRadius: 10, backgroundColor: '#F3F4F6' }}
+              contentFit="cover"
+            />
+          ) : (
+            <View
+              style={{
+                width: 56,
+                height: 72,
+                borderRadius: 10,
+                backgroundColor: theme.colors.accent + '14',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              {outfit.name || outfit.occasion || 'Outfit'}
+              <Ionicons name={icon} size={22} color={theme.colors.accent} />
+            </View>
+          )}
+          <StyledView style={{ flex: 1 }}>
+            <Typography
+              style={{
+                color: textSecondary,
+                fontSize: 11,
+                fontWeight: '600',
+                letterSpacing: 0.3,
+                textTransform: 'uppercase',
+                marginBottom: 4,
+              }}
+            >
+              {card.title}
             </Typography>
-            <Typography
-              style={{ color: textSecondary, fontSize: 13, marginTop: 4 }}
-              numberOfLines={1}
-            >
-              {outfit.items?.length ?? 0} pieces
+            <Typography style={{ color: textPrimary, fontSize: 15, lineHeight: 21 }}>
+              {card.body}
             </Typography>
           </StyledView>
         </StyledView>
-      </TouchableOpacity>
+
+        {card.showStyleCta && card.anchorItemId && (
+          <TouchableOpacity
+            onPress={onStyleThis}
+            disabled={isStyling}
+            accessibilityRole="button"
+            accessibilityLabel={`Style this: ${card.title}`}
+            style={{
+              marginTop: 14,
+              paddingVertical: 12,
+              borderRadius: 12,
+              backgroundColor: theme.colors.primary,
+              alignItems: 'center',
+              opacity: isStyling ? 0.6 : 1,
+            }}
+          >
+            <Typography style={{ color: '#FFF', fontWeight: '600', fontSize: 15 }}>
+              {isStyling ? 'Styling…' : 'Style this'}
+            </Typography>
+          </TouchableOpacity>
+        )}
+      </View>
     </Animated.View>
   );
 }

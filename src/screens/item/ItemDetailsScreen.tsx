@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { Alert, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, {
   FadeIn,
@@ -63,14 +63,14 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
     setIsDeleteModalVisible(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
+    setIsDeleteModalVisible(false);
     try {
-      deleteItem(item.id);
-    } catch (err) {
-      console.error('[ItemDetailsScreen] deleteItem failed:', err);
-    } finally {
-      setIsDeleteModalVisible(false);
+      await deleteItem(item.id);
       navigation.goBack();
+    } catch (err) {
+      if (__DEV__) console.error('[ItemDetailsScreen] deleteItem failed:', err);
+      Alert.alert('Delete failed', 'Could not remove this item. Please try again.');
     }
   };
 

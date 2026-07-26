@@ -1,152 +1,197 @@
-import React, { useEffect } from 'react';
-import { ScrollView, TouchableOpacity, FlatList } from 'react-native';
-import Animated, {
-  FadeInDown,
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
-import { Screen, Typography, StyledView, Card } from '../../components/common';
-import { theme } from '../../theme';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ScrollView, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
+import { Image } from 'expo-image';
+import { Screen, Typography, Button, StyledView } from '../../components/common';
+import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
-import { useScanStore } from '../../store/useScanStore';
+import { useAuthStore } from '../../store/useAuthStore';
+import { uploadClothingItemPhoto } from '../../services/imageUpload';
+import { createClothingItem } from '../../services/wardrobeRepository';
+import { functionsClient } from '../../services/functionsClient';
+import {
+  enqueueScanQueue,
+  fetchScanQueue,
+  type ScanQueueRow,
+} from '../../services/scanQueueService';
+import { isSupabaseConfigured } from '../../services/supabase';
+import { signedUrlForItemPath } from '../../services/wardrobeRepository';
 
-const QueueItem = ({ item, index }: any) => {
-  const rotation = useSharedValue(0);
+interface LocalBatchItem {
+  localUri: string;
+  queueId?: string;
+  imagePath?: string;
+  itemId?: string;
+  status: ScanQueueRow['status'] | 'uploading';
+  error?: string;
+}
 
-  useEffect(() => {
-    if (item.status === 'processing') {
-      rotation.value = withRepeat(withTiming(360, { duration: 1000 }), -1, false);
-    }
-  }, [item.status]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value}deg` }],
-  }));
-
-  return (
-    <Animated.View entering={FadeInDown.duration(400).delay(index * 100)}>
-      <Card className="p-4 mb-3 border-0 shadow-sm">
-        <StyledView className="flex-row items-center">
-          <StyledView
-            style={{
-              width: 60,
-              height: 60,
-              borderRadius: 12,
-              backgroundColor: theme.colors.background,
-              marginRight: 12,
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            {item.status === 'processing' ? (
-              <Animated.View style={animatedStyle}>
-                <Ionicons name="sync" size={24} color={theme.colors.accent} />
-              </Animated.View>
-            ) : item.status === 'success' ? (
-              <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
-            ) : (
-              <Ionicons name="time-outline" size={24} color={theme.colors.textSecondary} />
-            )}
-          </StyledView>
-          <StyledView className="flex-1">
-            <Typography className="text-primary font-semibold mb-1">
-              {item.status === 'processing'
-                ? 'Processing...'
-                : item.status === 'success'
-                  ? 'Ready'
-                  : 'Pending'}
-            </Typography>
-            <Typography className="text-gray-500 text-sm">
-              {item.detectedTags?.join(', ') || 'Waiting for analysis'}
-            </Typography>
-          </StyledView>
-          {item.confidence && (
-            <StyledView className="items-end">
-              <Typography className="text-accent font-bold text-sm">
-                {Math.round(item.confidence * 100)}%
-              </Typography>
-              <Typography className="text-gray-400 text-xs">confidence</Typography>
-            </StyledView>
-          )}
-        </StyledView>
-      </Card>
-    </Animated.View>
+export const BatchScanQueueScreen = ({ navigation, route }: any) => {
+  const { currentTheme } = useThemeStore();
+  const user = useAuthStore((s) => s.user);
+  const uris: string[] = route?.params?.uris ?? [];
+  const [items, setItems] = useState<LocalBatchItem[]>(
+    uris.map((uri) => ({ localUri: uri, status: 'pending' as const }))
   );
-};
+  const [processing, setProcessing] = useState(false);
 
-export const BatchScanQueueScreen = ({ navigation }: any) => {
-  const { queue, processQueue, isProcessing } = useScanStore();
+  const refreshRemote = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    try {
+      const rows = await fetchScanQueue();
+      setItems((prev) =>
+        prev.map((item) => {
+          const match = rows.find((r) => r.id === item.queueId);
+          if (!match) return item;
+          return {
+            ...item,
+            status: match.status,
+            error: match.error ?? undefined,
+          };
+        })
+      );
+    } catch (err) {
+      if (__DEV__) console.warn('[BatchScanQueue] refresh', err);
+    }
+  }, []);
 
   useEffect(() => {
-    if (queue.length > 0 && !isProcessing) {
-      processQueue();
+    void refreshRemote();
+  }, [refreshRemote]);
+
+  const processAll = async () => {
+    if (!isSupabaseConfigured() || !user?.id) {
+      Alert.alert('Offline mode', 'Sign in with Supabase configured to run batch scans.');
+      return;
     }
-  }, [queue.length]);
+    setProcessing(true);
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const current = items[i];
+        if (current.status === 'done') continue;
+
+        setItems((prev) =>
+          prev.map((it, idx) => (idx === i ? { ...it, status: 'uploading' } : it))
+        );
+
+        const filename = `batch-${Date.now()}-${i}.jpg`;
+        const upload = await uploadClothingItemPhoto(user.id, current.localUri, filename);
+        const queueRow = await enqueueScanQueue(upload.path);
+        const row = await createClothingItem({ image_path: upload.path, status: 'active' });
+        if (!row || !queueRow) throw new Error('Failed to create batch item.');
+
+        setItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i
+              ? {
+                  ...it,
+                  status: 'processing',
+                  queueId: queueRow.id,
+                  imagePath: upload.path,
+                  itemId: row.id,
+                }
+              : it
+          )
+        );
+
+        await functionsClient.tagItem({
+          item_id: row.id,
+          scan_queue_id: queueRow.id,
+        });
+
+        setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, status: 'done' } : it)));
+      }
+      await refreshRemote();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Batch processing failed.';
+      Alert.alert('Batch scan failed', message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const allDone = items.length > 0 && items.every((i) => i.status === 'done');
 
   return (
     <Screen className="bg-background">
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 100 }}
-      >
-        {/* Header */}
-        <Animated.View entering={FadeInDown.duration(400)}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={{ marginBottom: 24, width: 40 }}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+        <StyledView style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
+            <Ionicons name="arrow-back" size={24} color={currentTheme.colors.text} />
           </TouchableOpacity>
-          <Typography variant="header" className="text-4xl text-primary mb-2">
-            Processing Queue
+          <Typography variant="header" className="text-2xl text-primary">
+            Batch scan
           </Typography>
-          <Typography className="text-gray-500 text-base mb-6">
-            {queue.length} {queue.length === 1 ? 'item' : 'items'} in queue
-          </Typography>
-        </Animated.View>
+        </StyledView>
 
-        {/* Queue List */}
-        {queue.length > 0 ? (
-          queue.map((item: any, index: number) => (
-            <QueueItem key={item.id} item={item} index={index} />
-          ))
-        ) : (
-          <Card className="p-8 border-0 shadow-sm">
-            <StyledView className="items-center">
-              <Ionicons
-                name="checkmark-done-circle-outline"
-                size={48}
-                color={theme.colors.textSecondary}
-                style={{ opacity: 0.3, marginBottom: 12 }}
-              />
-              <Typography className="text-gray-500 text-center mb-2">Queue is empty</Typography>
-              <Typography className="text-gray-400 text-center text-sm">
-                All items have been processed
-              </Typography>
-            </StyledView>
-          </Card>
-        )}
+        <Typography className="text-gray-500 mb-4">
+          {items.length} photo{items.length === 1 ? '' : 's'} queued for AI tagging via scan_queue.
+        </Typography>
 
-        {/* Action Button */}
-        {queue.length > 0 && queue.every((item: any) => item.status === 'success') && (
-          <Animated.View entering={FadeInDown.duration(400).delay(300)}>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('BatchSummary')}
-              style={{
-                marginTop: 24,
-                padding: 16,
-                borderRadius: 16,
-                backgroundColor: theme.colors.primary,
-                alignItems: 'center',
-              }}
-            >
-              <Typography className="text-white font-semibold text-lg">Review All Items</Typography>
-            </TouchableOpacity>
-          </Animated.View>
-        )}
+        {items.map((item, index) => (
+          <BatchRow key={`${item.localUri}-${index}`} item={item} index={index} />
+        ))}
+
+        <Button
+          title={processing ? 'Processing…' : allDone ? 'Done' : 'Process all'}
+          onPress={allDone ? () => navigation.navigate('LiveCameraScan') : processAll}
+          loading={processing}
+          disabled={processing || items.length === 0}
+          className="mt-6"
+        />
       </ScrollView>
     </Screen>
   );
 };
+
+function BatchRow({ item, index }: { item: LocalBatchItem; index: number }) {
+  const { currentTheme } = useThemeStore();
+  const [thumb, setThumb] = useState(item.localUri);
+
+  useEffect(() => {
+    if (item.imagePath && isSupabaseConfigured()) {
+      signedUrlForItemPath(item.imagePath).then((url) => {
+        if (url) setThumb(url);
+      });
+    }
+  }, [item.imagePath]);
+
+  const statusLabel =
+    item.status === 'uploading'
+      ? 'Uploading…'
+      : item.status === 'processing'
+        ? 'Tagging…'
+        : item.status === 'done'
+          ? 'Done'
+          : item.status === 'failed'
+            ? 'Failed'
+            : 'Pending';
+
+  return (
+    <StyledView
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        marginBottom: 10,
+        borderRadius: 12,
+        backgroundColor: currentTheme.colors.surface,
+        borderWidth: 1,
+        borderColor: currentTheme.colors.border,
+      }}
+    >
+      <Image source={{ uri: thumb }} style={{ width: 56, height: 56, borderRadius: 8 }} />
+      <View style={{ flex: 1, marginLeft: 12 }}>
+        <Typography className="font-semibold text-primary">Item {index + 1}</Typography>
+        <Typography className="text-sm text-gray-500">{statusLabel}</Typography>
+        {item.error ? (
+          <Typography className="text-xs text-red-500 mt-1">{item.error}</Typography>
+        ) : null}
+      </View>
+      {item.status === 'processing' || item.status === 'uploading' ? (
+        <ActivityIndicator color={currentTheme.colors.primary} />
+      ) : item.status === 'done' ? (
+        <Ionicons name="checkmark-circle" size={22} color={currentTheme.colors.success} />
+      ) : null}
+    </StyledView>
+  );
+}

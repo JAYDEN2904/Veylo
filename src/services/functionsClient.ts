@@ -8,14 +8,17 @@ import { getSupabase, isSupabaseConfigured } from './supabase';
 export type TagItemRequest = {
   item_id: string;
   image_path?: string;
+  scan_queue_id?: string;
 };
 
 export type TagItemTags = {
   category: string;
   sub_category?: string | null;
   colors: string[];
+  colors_hsl?: Array<{ h: number; s: number; l: number }>;
   brand_guess?: string | null;
   material_guess?: string | null;
+  pattern?: string | null;
   season: string[];
   style_tags: string[];
   confidence: number;
@@ -163,6 +166,12 @@ export type GenerateOutfitRequest = {
   style_preferences?: string[];
   count?: number;
   persist?: boolean;
+  /** Force this clothing_items.id into every returned outfit */
+  must_include_item_id?: string;
+  weather?: {
+    temperature: number;
+    condition: string;
+  };
 };
 
 export type GeneratedOutfitItem = {
@@ -182,6 +191,7 @@ export type GeneratedOutfit = {
   items: GeneratedOutfitItem[];
   style_match_score: number;
   fit_score: number;
+  fit_reasoning?: string[];
   used_relaxed_filters: boolean;
 };
 

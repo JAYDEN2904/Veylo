@@ -184,9 +184,9 @@ export const AnalyticsDashboardScreen = ({ navigation }: any) => {
           <StyledView className="flex-row items-center justify-between mb-6">
             <StyledView>
               <Typography variant="header" className="text-4xl text-primary mb-1">
-                Insights
+                Closet stats
               </Typography>
-              <Typography className="text-gray-500 text-base">Your closet at a glance</Typography>
+              <Typography className="text-gray-500 text-base">Charts and breakdowns</Typography>
             </StyledView>
             <TouchableOpacity
               onPress={() => navigation.navigate('ClosetComposition')}

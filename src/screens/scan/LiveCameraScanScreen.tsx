@@ -12,14 +12,11 @@ import Animated, {
   withDelay,
   FadeIn,
   FadeInDown,
-  interpolate,
-  Extrapolate,
   cancelAnimation,
 } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
-import { Screen, Typography, Button, StyledView } from '../../components/common';
+import { Screen, Typography } from '../../components/common';
 import { Ionicons } from '@expo/vector-icons';
-import { useScanStore } from '../../store/useScanStore';
 import { useThemeStore } from '../../store/useThemeStore';
 import {
   getMainTabBarFloatingStyle,
@@ -28,14 +25,12 @@ import {
 import { getBottomTabNavigatorNavigation } from '../../navigation/screenProps';
 import { theme } from '../../theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const VIEWFINDER_SIZE = width * 0.75;
 
-// Scanning frame corners
 const FrameCorner = ({ position }: { position: 'tl' | 'tr' | 'bl' | 'br' }) => {
-  const cornerStyles: any = {
+  const cornerStyles: Record<string, object> = {
     tl: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 24 },
     tr: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 24 },
     bl: {
@@ -70,7 +65,6 @@ const FrameCorner = ({ position }: { position: 'tl' | 'tr' | 'bl' | 'br' }) => {
   );
 };
 
-// Scanning line animation
 const ScanLine = () => {
   const translateY = useSharedValue(0);
 
@@ -116,7 +110,6 @@ const ScanLine = () => {
   );
 };
 
-// Tip component
 const ScanTip = ({ icon, text, delay }: { icon: string; text: string; delay: number }) => (
   <Animated.View
     entering={FadeInDown.duration(500).delay(delay)}
@@ -131,7 +124,7 @@ const ScanTip = ({ icon, text, delay }: { icon: string; text: string; delay: num
     }}
   >
     <Ionicons
-      name={icon as any}
+      name={icon as keyof typeof Ionicons.glyphMap}
       size={16}
       color={theme.colors.secondary}
       style={{ marginRight: 8 }}
@@ -147,7 +140,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
   const [flash, setFlash] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const cameraRef = useRef<Camera | null>(null);
-  const { queue, addToQueue } = useScanStore();
 
   useFocusEffect(
     useCallback(() => {
@@ -175,7 +167,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
     tabNavigation?.navigate('TodayStack' as never);
   }, [navigation]);
 
-  // Animations
   const captureScale = useSharedValue(1);
   const captureRing = useSharedValue(1);
   const pulseOpacity = useSharedValue(0.5);
@@ -188,7 +179,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
   }, []);
 
   useEffect(() => {
-    // Pulse animation for capture button
     pulseOpacity.value = withRepeat(
       withSequence(withTiming(0.8, { duration: 1000 }), withTiming(0.4, { duration: 1000 })),
       -1,
@@ -204,7 +194,7 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
-        console.warn('[LiveCameraScan] media library permission denied');
+        if (__DEV__) console.warn('[LiveCameraScan] media library permission denied');
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -216,48 +206,40 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
       if (result.canceled) return;
       const assets = result.assets ?? [];
       if (assets.length === 0) return;
-      for (const asset of assets) {
-        if (asset.uri) addToQueue(asset.uri);
-      }
-      if (assets.length === 1) {
-        navigation.navigate('ScanProcessing', { imageUri: assets[0].uri });
+      const uris = assets.map((a) => a.uri).filter(Boolean) as string[];
+      if (uris.length === 1) {
+        navigation.navigate('ScanProcessing', { imageUri: uris[0] });
       } else {
-        navigation.navigate('BatchSummary');
+        navigation.navigate('BatchScanQueue', { uris });
       }
     } catch (err) {
-      console.error('[LiveCameraScan] gallery pick failed:', err);
+      if (__DEV__) console.error('[LiveCameraScan] gallery pick failed:', err);
     }
   };
 
   const takePicture = async () => {
-    if (cameraRef.current && !isCapturing) {
-      setIsCapturing(true);
+    if (!cameraRef.current || isCapturing) return;
+    setIsCapturing(true);
 
-      // Capture animation
-      captureScale.value = withSequence(
-        withTiming(0.9, { duration: 100 }),
-        withSpring(1, { damping: 8 })
-      );
-      captureRing.value = withSequence(
-        withTiming(1.3, { duration: 150 }),
-        withTiming(1, { duration: 150 })
-      );
+    captureScale.value = withSequence(
+      withTiming(0.9, { duration: 100 }),
+      withSpring(1, { damping: 8 })
+    );
+    captureRing.value = withSequence(
+      withTiming(1.3, { duration: 150 }),
+      withTiming(1, { duration: 150 })
+    );
 
-      try {
-        const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.8,
-          base64: false,
-        });
-        addToQueue(photo.uri);
-
-        // Brief feedback delay
-        setTimeout(() => {
-          setIsCapturing(false);
-        }, 300);
-      } catch (error) {
-        setIsCapturing(false);
-        console.error('Error taking picture:', error);
-      }
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: false,
+      });
+      navigation.navigate('ScanProcessing', { imageUri: photo.uri });
+    } catch (error) {
+      if (__DEV__) console.error('[LiveCameraScan] takePicture', error);
+    } finally {
+      setIsCapturing(false);
     }
   };
 
@@ -318,9 +300,7 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
         ref={cameraRef}
         flashMode={flash ? FlashMode.on : FlashMode.off}
       >
-        {/* Top gradient overlay */}
         <LinearGradient colors={['rgba(0,0,0,0.7)', 'transparent']} style={styles.topOverlay}>
-          {/* Header */}
           <Animated.View entering={FadeInDown.duration(500)} style={styles.header}>
             <TouchableOpacity onPress={handleCloseScan} style={styles.headerButton}>
               <Ionicons name="close" size={24} color="#FFFFFF" />
@@ -329,23 +309,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
               <Typography style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700' }}>
                 Scan Item
               </Typography>
-              {queue.length > 0 && (
-                <View
-                  style={{
-                    backgroundColor: theme.colors.secondary,
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                    borderRadius: 10,
-                    marginLeft: 8,
-                  }}
-                >
-                  <Typography
-                    style={{ color: theme.colors.primary, fontSize: 12, fontWeight: '700' }}
-                  >
-                    {queue.length}
-                  </Typography>
-                </View>
-              )}
             </View>
             <TouchableOpacity
               onPress={() => setFlash(!flash)}
@@ -360,7 +323,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
           </Animated.View>
         </LinearGradient>
 
-        {/* Viewfinder */}
         <Animated.View entering={FadeIn.duration(800)} style={styles.viewfinderContainer}>
           <View style={styles.viewfinder}>
             <FrameCorner position="tl" />
@@ -368,17 +330,13 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
             <FrameCorner position="bl" />
             <FrameCorner position="br" />
             <ScanLine />
-
-            {/* Center guide */}
             <View style={styles.centerGuide}>
               <Ionicons name="shirt-outline" size={48} color="rgba(255,255,255,0.2)" />
             </View>
           </View>
         </Animated.View>
 
-        {/* Bottom controls */}
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.bottomOverlay}>
-          {/* Tips */}
           <Animated.View
             entering={FadeInDown.duration(500).delay(400)}
             style={styles.tipsContainer}
@@ -387,7 +345,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
             <ScanTip icon="crop-outline" text="Center item" delay={700} />
           </Animated.View>
 
-          {/* From Library */}
           <Animated.View entering={FadeInDown.duration(500).delay(450)} style={styles.libraryRow}>
             <TouchableOpacity
               onPress={pickFromGallery}
@@ -407,22 +364,9 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
             </TouchableOpacity>
           </Animated.View>
 
-          {/* Controls */}
           <Animated.View entering={FadeInDown.duration(500).delay(200)} style={styles.controls}>
-            {/* Gallery/Queue Button */}
-            <TouchableOpacity
-              onPress={() => navigation.navigate('BatchSummary')}
-              style={styles.sideButton}
-            >
-              <Ionicons name="images" size={28} color="#FFFFFF" />
-              {queue.length > 0 && (
-                <View style={styles.badgeContainer}>
-                  <Typography style={styles.badgeText}>{queue.length}</Typography>
-                </View>
-              )}
-            </TouchableOpacity>
+            <View style={styles.sideButtonPlaceholder} />
 
-            {/* Capture Button */}
             <TouchableOpacity
               onPress={takePicture}
               disabled={isCapturing}
@@ -449,7 +393,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
               </Animated.View>
             </TouchableOpacity>
 
-            {/* Flip Camera Button */}
             <TouchableOpacity
               onPress={() => setType(type === CameraType.back ? CameraType.front : CameraType.back)}
               style={styles.sideButton}
@@ -457,35 +400,6 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
               <Ionicons name="camera-reverse" size={28} color="#FFFFFF" />
             </TouchableOpacity>
           </Animated.View>
-
-          {/* Process Queue Button */}
-          {queue.length > 0 && (
-            <Animated.View entering={FadeInDown.duration(400)} style={styles.processButton}>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('ScanProcessing')}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: theme.colors.secondary,
-                  paddingHorizontal: 24,
-                  paddingVertical: 14,
-                  borderRadius: 28,
-                }}
-              >
-                <Ionicons
-                  name="flash"
-                  size={20}
-                  color={theme.colors.primary}
-                  style={{ marginRight: 8 }}
-                />
-                <Typography
-                  style={{ color: theme.colors.primary, fontWeight: '700', fontSize: 16 }}
-                >
-                  Process {queue.length} Item{queue.length > 1 ? 's' : ''}
-                </Typography>
-              </TouchableOpacity>
-            </Animated.View>
-          )}
         </LinearGradient>
       </Camera>
     </View>
@@ -578,6 +492,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 40,
   },
+  sideButtonPlaceholder: {
+    width: 56,
+    height: 56,
+  },
   sideButton: {
     width: 56,
     height: 56,
@@ -585,22 +503,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  badgeContainer: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: theme.colors.secondary,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  badgeText: {
-    color: theme.colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
   },
   captureButtonOuter: {
     marginHorizontal: 32,
@@ -627,9 +529,5 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  processButton: {
-    alignItems: 'center',
-    marginTop: 20,
   },
 });

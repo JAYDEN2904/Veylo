@@ -8,6 +8,8 @@ import { weatherService } from '../services/weatherService';
 import {
   generateContextAwareOutfit,
   generateOutfitVariations,
+  generateRankedOutfits,
+  enrichOutfitWithDimensionScores,
   resolveOccasionKey,
 } from '../services/outfitGenerationService';
 import {
@@ -24,6 +26,7 @@ import {
 import { isSupabaseConfigured, getSupabase } from '../services/supabase';
 import { useCalendarStore } from './useCalendarStore';
 import { updateClothingItem } from '../services/wardrobeRepository';
+import { namedColorsToHsl } from '../utils/hslColor';
 import { usePendingRatingStore } from './usePendingRatingStore';
 
 interface OutfitState {
@@ -80,8 +83,15 @@ export const useOutfitStore = create<OutfitState>()(
 
         const paletteId = typeof options?.palette === 'string' ? options.palette : undefined;
         const weatherOverride = resolveWizardWeather(options?.weather);
+        const weatherFromOptions =
+          weatherOverride ??
+          (options?.weather &&
+          typeof options.weather === 'object' &&
+          'temperature' in options.weather
+            ? (options.weather as WeatherData)
+            : null);
 
-        let weather: WeatherData | null = weatherOverride;
+        let weather: WeatherData | null = weatherFromOptions;
         if (!weather) {
           try {
             const { status } = await Location.getForegroundPermissionsAsync();
@@ -103,19 +113,22 @@ export const useOutfitStore = create<OutfitState>()(
           ? (options!.styles as string[])
           : undefined;
 
-        // When the wizard supplied palette or a weather override, skip the server
-        // generator (which ignores both) and use the local generator that honors
-        // them via scoreItemForSlot.
-        const hasWizardSignal = Boolean(paletteId || weatherOverride);
+        const rankedCount = 3;
+        const hasWizardPalette = Boolean(paletteId);
+        const mustIncludeItemId =
+          typeof options?.mustIncludeItemId === 'string' ? options.mustIncludeItemId : undefined;
 
-        // Server-side generation when backend is configured.
-        if (isSupabaseConfigured() && !hasWizardSignal) {
+        // Server-side generation when backend is configured (palette / Style-this force local).
+        if (isSupabaseConfigured() && !hasWizardPalette && !mustIncludeItemId) {
           try {
             const req: GenerateOutfitRequest = {
               occasion: rawOccasion,
               style_preferences: flowStyleIds ?? styleProfile?.preferences,
-              count: 1,
+              count: rankedCount,
               persist: false,
+              weather: weather
+                ? { temperature: weather.temperature, condition: weather.condition }
+                : undefined,
             };
             const res = await functionsClient.generateOutfits(req);
             if (!res.outfits || res.outfits.length === 0) {
@@ -133,26 +146,31 @@ export const useOutfitStore = create<OutfitState>()(
               });
               return;
             }
-            const mapped = mapGeneratedOutfit(res.outfits[0], items);
-            if (styleProfile) {
-              mapped.styleMatchScore = calculateStyleMatchScore(mapped);
-            }
-            const fit = predictOutfitFit(mapped, get().outfits);
-            mapped.fitScore = fit.fitScore;
-            mapped.fitReasoning = fit.reasoning;
-            const difficulty = calculateOutfitDifficulty(mapped);
-            mapped.difficultyScore = difficulty.difficultyScore;
-            mapped.difficultyLabel = getOutfitDifficultyLabel(difficulty.difficultyScore);
+            const mappedOutfits = res.outfits.map((g) => {
+              const mapped = mapGeneratedOutfit(g, items);
+              if (g.fit_reasoning?.length) {
+                mapped.fitReasoning = g.fit_reasoning;
+              }
+              if (styleProfile && !g.fit_reasoning?.length) {
+                mapped.styleMatchScore = calculateStyleMatchScore(mapped);
+                const fit = predictOutfitFit(mapped, get().outfits);
+                mapped.fitScore = fit.fitScore;
+                mapped.fitReasoning = fit.reasoning;
+              }
+              const difficulty = calculateOutfitDifficulty(mapped);
+              mapped.difficultyScore = difficulty.difficultyScore;
+              mapped.difficultyLabel = getOutfitDifficultyLabel(difficulty.difficultyScore);
+              return mapped;
+            });
             set({
-              generatedOutfit: mapped,
-              outfitVariations: [],
+              generatedOutfit: mappedOutfits[0],
+              outfitVariations: mappedOutfits.slice(1),
               isGenerating: false,
               generationError: null,
             });
             return;
           } catch (err) {
             if (__DEV__) console.error('[useOutfitStore] generate-outfit-ideas', err);
-            // fall through to local generator on server error
           }
         }
 
@@ -170,37 +188,39 @@ export const useOutfitStore = create<OutfitState>()(
           stylePreferences: styleProfile?.preferences,
           flowStyleIds,
           paletteId,
+          mustIncludeItemId,
         };
 
-        const result = generateContextAwareOutfit(items, context);
-
-        if (!result.ok) {
+        const rankedResults = generateRankedOutfits(items, context, rankedCount);
+        if (rankedResults.length === 0 || !rankedResults[0].ok) {
+          const failure =
+            rankedResults[0]?.ok === false
+              ? rankedResults[0].failure
+              : {
+                  reason: 'filters_too_strict' as const,
+                  message: 'No outfit could be generated with current filters.',
+                };
           set({
             isGenerating: false,
             generatedOutfit: null,
-            generationError: result.failure,
+            generationError: failure,
             outfitVariations: [],
           });
           return;
         }
 
-        const newOutfit: Outfit = { ...result.outfit };
+        const enriched = rankedResults
+          .filter((r): r is Extract<typeof r, { ok: true }> => r.ok)
+          .map((r) => enrichOutfitWithDimensionScores(r.outfit, context));
 
+        const primary = enriched[0];
         if (styleProfile) {
-          newOutfit.styleMatchScore = calculateStyleMatchScore(newOutfit);
+          primary.styleMatchScore = calculateStyleMatchScore(primary);
         }
 
-        const fit = predictOutfitFit(newOutfit, get().outfits);
-        newOutfit.fitScore = fit.fitScore;
-        newOutfit.fitReasoning = fit.reasoning;
-
-        const difficulty = calculateOutfitDifficulty(newOutfit);
-        newOutfit.difficultyScore = difficulty.difficultyScore;
-        newOutfit.difficultyLabel = getOutfitDifficultyLabel(difficulty.difficultyScore);
-
         set({
-          generatedOutfit: newOutfit,
-          outfitVariations: [],
+          generatedOutfit: primary,
+          outfitVariations: enriched.slice(1),
           isGenerating: false,
           generationError: null,
         });
@@ -427,6 +447,7 @@ function mapGeneratedOutfit(g: GeneratedOutfit, wardrobe: ClothingItem[]): Outfi
       imageUrl: '',
       category: srv.category,
       colors: srv.colors ?? [],
+      colorsHsl: namedColorsToHsl(srv.colors ?? []),
       tags: srv.tags ?? [],
       season: srv.season ?? undefined,
       wornCount: srv.worn_count ?? undefined,
@@ -447,6 +468,7 @@ function mapGeneratedOutfit(g: GeneratedOutfit, wardrobe: ClothingItem[]): Outfi
     favorite: false,
     styleMatchScore: g.style_match_score,
     fitScore: g.fit_score,
+    fitReasoning: g.fit_reasoning,
     usedRelaxedFilters: g.used_relaxed_filters,
   };
 }

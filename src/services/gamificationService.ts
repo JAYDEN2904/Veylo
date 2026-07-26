@@ -31,8 +31,7 @@ export interface Milestone {
  * Calculate style streak based on daily app usage/outfit creation
  */
 export const calculateStyleStreak = (outfits: Outfit[], lastActiveDate?: string): StyleStreak => {
-  // In production, this would track actual daily usage
-  // For now, we'll use outfit creation dates
+  // Streak from outfit creation dates until user_stats / wear events are wired.
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -59,7 +58,7 @@ export const calculateStyleStreak = (outfits: Outfit[], lastActiveDate?: string)
 
   return {
     currentStreak,
-    longestStreak: Math.max(longestStreak, currentStreak, 5), // Default to 5 for demo
+    longestStreak: Math.max(longestStreak, currentStreak),
     lastActiveDate: lastActiveDate || today.toISOString(),
   };
 };

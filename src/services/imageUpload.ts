@@ -48,7 +48,7 @@ export async function uploadClothingItemPhoto(
   return { path: storagePath, publicUrl: signed?.signedUrl };
 }
 
-/** Resize/compress a selfie, upload to `avatars/{userId}/{filename}`. */
+/** Resize/compress a full-body reference photo, upload to `avatars/{userId}/{filename}`. */
 export async function uploadAvatarPhoto(
   userId: string,
   localUri: string,

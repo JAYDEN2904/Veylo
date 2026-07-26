@@ -1,16 +1,21 @@
 import { ClothingItem } from '../types';
+import { namedColorsToHsl } from '../utils/hslColor';
 import { generateContextAwareOutfit, resolveOccasionKey } from './outfitGenerationService';
 
-const item = (overrides: Partial<ClothingItem>): ClothingItem => ({
-  id: Math.random().toString(36).slice(2),
-  imageUrl: 'https://example.com/i.jpg',
-  category: 'Tops',
-  colors: ['White'],
-  tags: ['casual', 'minimal'],
-  createdAt: new Date().toISOString(),
-  status: 'active',
-  ...overrides,
-});
+const item = (overrides: Partial<ClothingItem>): ClothingItem => {
+  const colors = overrides.colors ?? ['White'];
+  return {
+    id: Math.random().toString(36).slice(2),
+    imageUrl: 'https://example.com/i.jpg',
+    category: 'Tops',
+    colors,
+    colorsHsl: overrides.colorsHsl ?? namedColorsToHsl(colors),
+    tags: ['casual', 'minimal'],
+    createdAt: new Date().toISOString(),
+    status: 'active',
+    ...overrides,
+  };
+};
 
 describe('resolveOccasionKey', () => {
   it('maps flow ids', () => {
@@ -60,5 +65,29 @@ describe('generateContextAwareOutfit', () => {
     ];
     const r = generateContextAwareOutfit(items, { occasionKey: 'Casual' });
     expect(r.ok).toBe(true);
+  });
+
+  it('forces mustIncludeItemId into the outfit', () => {
+    const items = [
+      item({ id: 't1', category: 'Tops', tags: ['casual'] }),
+      item({ id: 't2', category: 'Tops', tags: ['casual'], colors: ['Blue'] }),
+      item({ id: 'b1', category: 'Bottoms', tags: ['casual', 'denim'] }),
+      item({
+        id: 'j1',
+        category: 'Outerwear',
+        subCategory: 'Jacket',
+        tags: ['casual'],
+        colors: ['Denim'],
+        wornCount: 0,
+      }),
+    ];
+    const r = generateContextAwareOutfit(items, {
+      occasionKey: 'Casual',
+      mustIncludeItemId: 'j1',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.outfit.items.some((i) => i.id === 'j1')).toBe(true);
+    }
   });
 });

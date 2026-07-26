@@ -32,7 +32,7 @@ import { ItemDetailsScreen } from '../screens/item/ItemDetailsScreen';
 import { LiveCameraScanScreen } from '../screens/scan/LiveCameraScanScreen';
 import { ScanProcessingScreen } from '../screens/scan/ScanProcessingScreen';
 import { TagReviewScreen } from '../screens/scan/TagReviewScreen';
-import { BatchSummaryScreen } from '../screens/scan/BatchSummaryScreen';
+import { BatchScanQueueScreen } from '../screens/scan/BatchScanQueueScreen';
 import { SaveItemConfirmationScreen } from '../screens/scan/SaveItemConfirmationScreen';
 import { ScanFailureScreen } from '../screens/scan/ScanFailureScreen';
 
@@ -65,6 +65,7 @@ import { PrivacyPermissionsScreen } from '../screens/settings/PrivacyPermissions
 import { HelpCenterScreen } from '../screens/settings/HelpCenterScreen';
 import { AboutScreen } from '../screens/settings/AboutScreen';
 import { TermsPrivacyScreen } from '../screens/settings/TermsPrivacyScreen';
+import { StyleProfileEditScreen } from '../screens/settings/StyleProfileEditScreen';
 
 // Item edit flows (root stack)
 import { EditItemScreen } from '../screens/item/EditItemScreen';
@@ -121,7 +122,7 @@ const ScanNavigator = () => (
     <ScanStack.Screen name="LiveCameraScan" component={LiveCameraScanScreen} />
     <ScanStack.Screen name="ScanProcessing" component={ScanProcessingScreen} />
     <ScanStack.Screen name="TagReview" component={TagReviewScreen} />
-    <ScanStack.Screen name="BatchSummary" component={BatchSummaryScreen} />
+    <ScanStack.Screen name="BatchScanQueue" component={BatchScanQueueScreen} />
     <ScanStack.Screen name="SaveItemConfirmation" component={SaveItemConfirmationScreen} />
     <ScanStack.Screen name="ScanFailure" component={ScanFailureScreen} />
   </ScanStack.Navigator>
@@ -171,6 +172,7 @@ const ProfileNavigator = () => (
     <ProfileStack.Screen name="PrivacyPermissions" component={PrivacyPermissionsScreen} />
     <ProfileStack.Screen name="HelpCenter" component={HelpCenterScreen} />
     <ProfileStack.Screen name="About" component={AboutScreen} />
+    <ProfileStack.Screen name="StyleProfileEdit" component={StyleProfileEditScreen} />
     <ProfileStack.Screen name="TermsPrivacy" component={TermsPrivacyScreen} />
   </ProfileStack.Navigator>
 );
@@ -210,7 +212,7 @@ const MainTabs = () => {
                 />
               ),
         tabBarIcon: ({ focused, color }) => {
-          // Tab icons (Ionicons v5): Today=home, Outfits=shirt, Scan=camera FAB, Style=compass, Profile=person
+          // Tab icons (Ionicons v5): Today=home, Outfits=shirt, Scan=camera FAB, Insights=analytics, Profile=person
           let iconName: string;
 
           if (route.name === 'TodayStack') {
@@ -220,7 +222,7 @@ const MainTabs = () => {
           } else if (route.name === 'ScanStack') {
             iconName = 'camera';
           } else if (route.name === 'FeedStack') {
-            iconName = focused ? 'compass' : 'compass-outline';
+            iconName = focused ? 'analytics' : 'analytics-outline';
           } else if (route.name === 'ProfileStack') {
             iconName = focused ? 'person' : 'person-outline';
           } else {
@@ -286,8 +288,8 @@ const MainTabs = () => {
         name="FeedStack"
         component={FeedNavigator}
         options={{
-          title: 'Style',
-          tabBarAccessibilityLabel: 'Style inspiration',
+          title: 'Insights',
+          tabBarAccessibilityLabel: 'Closet insights and usage',
         }}
       />
       <Tab.Screen

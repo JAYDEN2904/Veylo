@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ScrollView, TouchableOpacity, Alert, View, Dimensions } from 'react-native';
+import { ScrollView, TouchableOpacity, Alert, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
@@ -15,9 +15,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuthStore } from '../../store/useAuthStore';
+import { validatePhotoForAvatar } from '../../services/avatarService';
 import { BodyType } from '../../types';
 
 const { width } = Dimensions.get('window');
+
+/** Tall crop guides users toward a head-to-toe frame. */
+const FULL_BODY_ASPECT: [number, number] = [9, 16];
 
 const BODY_TYPES: { value: BodyType; label: string; description: string; icon: string }[] = [
   { value: 'petite', label: 'Petite', description: 'Under 5\'4"', icon: 'person-outline' },
@@ -40,11 +44,12 @@ const BODY_TYPES: { value: BodyType; label: string; description: string; icon: s
 ];
 
 const PHOTO_TIPS = [
-  { icon: 'sunny-outline', text: 'Good lighting - face should be well-lit' },
-  { icon: 'eye-outline', text: 'Face clearly visible - look directly at camera' },
-  { icon: 'body-outline', text: 'Full body or upper body visible' },
-  { icon: 'square-outline', text: 'Plain, uncluttered background' },
-  { icon: 'close-outline', text: 'Close-up preferred for better face capture' },
+  { icon: 'body-outline', text: 'Head to toe in frame — stand far enough back' },
+  { icon: 'walk-outline', text: 'Stand facing the camera in a relaxed pose' },
+  { icon: 'sunny-outline', text: 'Even lighting from head to feet' },
+  { icon: 'shirt-outline', text: 'Fitted clothes so your shape is clear' },
+  { icon: 'square-outline', text: 'Plain background — avoid busy rooms' },
+  { icon: 'close-circle-outline', text: 'No face-only selfies or tight crops' },
 ];
 
 export const AvatarGenerationScreen = ({ navigation }: any) => {
@@ -54,9 +59,27 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
   const [selectedBodyType, setSelectedBodyType] = useState<BodyType | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const applySelectedPhoto = async (uri: string) => {
+    const validation = await validatePhotoForAvatar(uri);
+    if (!validation.valid) {
+      Alert.alert('Photo problem', validation.errors[0] ?? 'Please choose another photo.');
+      return;
+    }
+    setSelectedPhoto(uri);
+    if (validation.warnings.length > 0) {
+      Alert.alert(
+        'Use a full-body photo',
+        `${validation.warnings[0]}\n\nYou can keep this photo or choose a better head-to-toe shot.`,
+        [
+          { text: 'Choose another', style: 'cancel', onPress: () => setSelectedPhoto(null) },
+          { text: 'Keep photo' },
+        ]
+      );
+    }
+  };
+
   const pickImage = async (useCamera: boolean) => {
     try {
-      // Request permissions
       if (useCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
@@ -71,22 +94,19 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
         }
       }
 
+      const pickerOptions: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: FULL_BODY_ASPECT,
+        quality: 0.9,
+      };
+
       const result = await (useCamera
-        ? ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [3, 4],
-            quality: 0.9,
-          })
-        : ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [3, 4],
-            quality: 0.9,
-          }));
+        ? ImagePicker.launchCameraAsync(pickerOptions)
+        : ImagePicker.launchImageLibraryAsync(pickerOptions));
 
       if (!result.canceled && result.assets[0]) {
-        setSelectedPhoto(result.assets[0].uri);
+        await applySelectedPhoto(result.assets[0].uri);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -94,14 +114,22 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
     }
   };
 
+  const proceedToProcessing = () => {
+    if (!selectedPhoto || !selectedBodyType) return;
+    navigation.navigate('AvatarProcessing', {
+      photoUri: selectedPhoto,
+      bodyType: selectedBodyType,
+    });
+  };
+
   const handleGenerateAvatar = async () => {
     if (!selectedPhoto) {
-      Alert.alert('Photo Required', 'Please select or take a photo first.');
+      Alert.alert('Photo required', 'Add a full-body standing photo first.');
       return;
     }
 
     if (!selectedBodyType) {
-      Alert.alert('Body Type Required', 'Please select your body type.');
+      Alert.alert('Body type required', 'Select the option that best matches your build.');
       return;
     }
 
@@ -110,11 +138,30 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
       return;
     }
 
-    // Navigate to processing screen with photo and body type
-    navigation.navigate('AvatarProcessing', {
-      photoUri: selectedPhoto,
-      bodyType: selectedBodyType,
-    });
+    setIsLoading(true);
+    try {
+      const validation = await validatePhotoForAvatar(selectedPhoto);
+      if (!validation.valid) {
+        Alert.alert('Photo problem', validation.errors[0] ?? 'Please choose another photo.');
+        return;
+      }
+
+      if (validation.warnings.length > 0) {
+        Alert.alert(
+          'Full-body photo recommended',
+          `${validation.warnings[0]}\n\nContinue anyway, or change the photo for a better avatar and try-on fit?`,
+          [
+            { text: 'Change photo', style: 'cancel' },
+            { text: 'Continue anyway', onPress: proceedToProcessing },
+          ]
+        );
+        return;
+      }
+
+      proceedToProcessing();
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -129,7 +176,7 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
             Create Your Avatar
           </Typography>
           <Typography className="text-gray-500 text-base mb-6">
-            Upload a photo and select your body type to generate a personalized avatar
+            Upload a full-body standing photo, then select your body type for a try-on-ready avatar
           </Typography>
         </Animated.View>
 
@@ -137,7 +184,11 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
         <Animated.View entering={FadeInDown.duration(400).delay(100)}>
           <Card className="p-6 mb-6 border-0 shadow-lg">
             <Typography className="text-primary font-semibold text-lg mb-4">
-              Step 1: Add Your Photo
+              Step 1: Full-body photo
+            </Typography>
+            <Typography className="text-gray-500 text-sm mb-4">
+              Stand so your head, torso, and legs are all visible. Face-only selfies produce weaker
+              avatars and try-on results.
             </Typography>
 
             {selectedPhoto ? (
@@ -182,24 +233,28 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
                     marginBottom: 16,
                   }}
                 >
-                  <Ionicons name="person" size={64} color={currentTheme.colors.textSecondary} />
+                  <Ionicons
+                    name="body-outline"
+                    size={64}
+                    color={currentTheme.colors.textSecondary}
+                  />
                   <Typography className="text-gray-500 text-center mt-4 px-4">
-                    Your photo will appear here
+                    Your full-body photo will appear here
                   </Typography>
                 </StyledView>
 
                 <StyledView style={{ width: '100%', gap: 12 }}>
                   <PrimaryButton
-                    title="Take Photo"
+                    title="Take full-body photo"
                     icon="camera"
                     onPress={() => pickImage(true)}
-                    accessibilityLabel="Take photo"
+                    accessibilityLabel="Take full-body photo"
                   />
                   <SecondaryButton
-                    title="Choose from Library"
+                    title="Choose from library"
                     icon="images"
                     onPress={() => pickImage(false)}
-                    accessibilityLabel="Choose photo from library"
+                    accessibilityLabel="Choose full-body photo from library"
                   />
                 </StyledView>
               </StyledView>
@@ -236,7 +291,8 @@ export const AvatarGenerationScreen = ({ navigation }: any) => {
               Step 2: Select Body Type
             </Typography>
             <Typography className="text-gray-500 text-sm mb-4">
-              Choose the option that best matches your body type for accurate avatar generation
+              Match the option closest to your build. Combined with your full-body photo, this
+              shapes a more accurate avatar for virtual try-on.
             </Typography>
 
             <ScrollView

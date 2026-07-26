@@ -10,7 +10,6 @@ import Animated, {
 import { Screen, Typography, StyledView } from '../../components/common';
 import { theme } from '../../theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useScanStore } from '../../store/useScanStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { uploadClothingItemPhoto } from '../../services/imageUpload';
 import { createClothingItem } from '../../services/wardrobeRepository';
@@ -29,7 +28,6 @@ type RouteProps = { imageUri?: string };
 
 export const ScanProcessingScreen = ({ navigation, route }: any) => {
   const params: RouteProps = route?.params ?? {};
-  const { queue, updateScannedItem } = useScanStore();
   const user = useAuthStore((s) => s.user);
   const hasRun = useRef(false);
   const [stepLabel, setStepLabel] = useState(PROCESSING_STEPS[0]);
@@ -63,39 +61,29 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
     setStepLabel(PROCESSING_STEPS[stepIndex] ?? PROCESSING_STEPS[0]);
   };
 
-  const pickImageUri = (): { localUri: string; queueId?: string } | null => {
-    if (params.imageUri) return { localUri: params.imageUri };
-    const next = queue.find((q) => q.status === 'pending' || q.status === 'processing');
-    if (next) return { localUri: next.localUri, queueId: next.id };
-    if (queue.length > 0) return { localUri: queue[0].localUri, queueId: queue[0].id };
+  const pickImageUri = (): string | null => {
+    if (params.imageUri) return params.imageUri;
     return null;
   };
 
   const runPipeline = async () => {
     try {
-      const target = pickImageUri();
-      if (!target) {
+      const localUri = pickImageUri();
+      if (!localUri) {
         navigation.replace('ScanFailure', { error: 'No image to process.' });
         return;
       }
 
-      // Fallback mock mode when backend isn't reachable: keep the old UX.
       if (!isSupabaseConfigured() || !user?.id) {
-        setProgress(30, 2);
-        await wait(600);
-        setProgress(80, 3);
-        await wait(600);
-        setProgress(100, 4);
-        await wait(300);
-        navigation.replace('TagReview', { imageUri: target.localUri });
+        navigation.replace('ScanFailure', {
+          error: 'Scanning requires a connected account. Sign in and try again.',
+        });
         return;
       }
 
-      if (target.queueId) updateScannedItem(target.queueId, { status: 'processing' });
-
       setProgress(15, 0);
       const filename = `scan-${Date.now()}.jpg`;
-      const upload = await uploadClothingItemPhoto(user.id, target.localUri, filename);
+      const upload = await uploadClothingItemPhoto(user.id, localUri, filename);
 
       setProgress(40, 1);
       const row = await createClothingItem({
@@ -108,12 +96,11 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
       const tagResult = await functionsClient.tagItem({ item_id: row.id });
 
       setProgress(95, 3);
-      if (target.queueId) updateScannedItem(target.queueId, { status: 'success' });
       setProgress(100, 4);
       await wait(200);
       navigation.replace('TagReview', {
         itemId: row.id,
-        imageUri: upload.publicUrl ?? target.localUri,
+        imageUri: upload.publicUrl ?? localUri,
         aiConfidence: tagResult.tags.confidence,
         aiCategory: tagResult.tags.category,
       });

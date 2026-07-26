@@ -1,29 +1,17 @@
-// tag-item — classify a wardrobe photo and persist tags + embedding.
-//
-// Input:  { item_id: string, image_path?: string }
-//   - item_id: row in public.clothing_items owned by the caller
-//   - image_path: optional override; defaults to clothing_items.image_path
-// Output: { ok: true, item: {...full row}, tags: VisionTagResult }
-//
-// Flow:
-//   1. Verify caller's JWT
-//   2. Load the row (RLS-scoped)
-//   3. Sign a read URL for the image in `item-photos`
-//   4. GPT-4o Vision → strict JSON tags
-//   5. Update clothing_items with tags
-//   6. text-embedding-3-small over a synthetic description → upsert embeddings
-//   7. Log api_usage and return
+// tag-item — classify a wardrobe photo via Google Cloud Vision and persist tags + embedding.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
-import { tagGarment, createEmbedding } from '../_shared/openai.ts';
+import { tagGarmentFromVision } from '../_shared/cloudVision.ts';
+import { createEmbedding } from '../_shared/openai.ts';
 import { logUsage } from '../_shared/usage.ts';
 
 interface TagItemPayload {
   item_id: string;
   image_path?: string;
+  scan_queue_id?: string;
 }
 
 Deno.serve(async (req) => {
@@ -70,23 +58,29 @@ Deno.serve(async (req) => {
     );
   }
 
-  // KNOWN LIMITATION: No background removal step is applied before sending the
-  // image to GPT-4o. The Virtual Try-On flat-lay feature (FS-10) therefore
-  // composites raw photos rather than isolated garment PNGs, which degrades the
-  // flat-lay result. To fix this properly, add a remove.bg API call (or an
-  // OpenAI image-edit pass) here before tagging, store the cleaned PNG path
-  // separately, and reference it in the try-on pipeline. Tracked as A5 in the
-  // audit fix list.
+  if (payload.scan_queue_id) {
+    await userClient
+      .from('scan_queue')
+      .update({ status: 'processing', error: null })
+      .eq('id', payload.scan_queue_id);
+  }
 
   let tags;
   try {
-    tags = await tagGarment(signed.signedUrl);
+    tags = await tagGarmentFromVision(signed.signedUrl);
   } catch (err) {
-    console.error('[tag-item] vision failed', err);
-    await userClient
-      .from('scan_queue')
-      .update({ status: 'failed', error: String(err) })
-      .eq('image_path', imagePath);
+    console.error('[tag-item] Cloud Vision failed', err);
+    if (payload.scan_queue_id) {
+      await userClient
+        .from('scan_queue')
+        .update({ status: 'failed', error: String(err) })
+        .eq('id', payload.scan_queue_id);
+    } else {
+      await userClient
+        .from('scan_queue')
+        .update({ status: 'failed', error: String(err) })
+        .eq('image_path', imagePath);
+    }
     return jsonResponse({ error: 'Vision API failed', detail: String(err) }, { status: 502 });
   }
 
@@ -95,6 +89,7 @@ Deno.serve(async (req) => {
     tags.sub_category,
     tags.colors.join(' '),
     tags.material_guess,
+    tags.pattern,
     tags.style_tags.join(' '),
   ]
     .filter(Boolean)
@@ -115,9 +110,12 @@ Deno.serve(async (req) => {
       category: tags.category,
       sub_category: tags.sub_category,
       colors: tags.colors,
+      colors_hsl: tags.colors_hsl,
       brand: tags.brand_guess ?? row.brand,
       season: tags.season,
       tags: tags.style_tags,
+      material: tags.material_guess,
+      pattern: tags.pattern,
       formality_score: formalityScore,
       updated_at: new Date().toISOString(),
     })
@@ -127,6 +125,13 @@ Deno.serve(async (req) => {
 
   if (updateError || !updated) {
     return jsonResponse({ error: updateError?.message ?? 'Update failed' }, { status: 500 });
+  }
+
+  if (payload.scan_queue_id) {
+    await userClient
+      .from('scan_queue')
+      .update({ status: 'done', error: null })
+      .eq('id', payload.scan_queue_id);
   }
 
   if (embedding) {
@@ -141,16 +146,14 @@ Deno.serve(async (req) => {
       },
       { onConflict: 'user_id,entity_type,entity_id' }
     );
-    if (embError) {
-      console.error('[tag-item] embedding upsert failed', embError);
-    }
+    if (embError) console.error('[tag-item] embedding upsert failed', embError);
 
     await logUsage(service, {
       user_id: user.id,
       function_name: 'tag-item',
-      provider: 'openai',
+      provider: 'google',
       units: 1,
-      cost_usd: 0.012,
+      cost_usd: 0.0015,
       metadata: { confidence: tags.confidence, category: tags.category },
     });
   }
@@ -158,18 +161,8 @@ Deno.serve(async (req) => {
   return jsonResponse({ ok: true, item: updated, tags });
 });
 
-/**
- * Derives a formality score (1–4) from the AI-detected category and style tags.
- *
- * Scale:
- *   1 = Athletic / activewear
- *   2 = Casual / everyday
- *   3 = Smart casual / business casual
- *   4 = Formal / black-tie
- */
 function deriveFormalityScore(category: string, styleTags: string[]): number {
   const tagBlob = [category, ...styleTags].join(' ').toLowerCase();
-
   const athleticTokens = [
     'sport',
     'athletic',

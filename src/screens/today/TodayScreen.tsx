@@ -40,10 +40,6 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type Props = TodayStackScreenProps<'Today'>;
 
-// Accra, Ghana — representative default for West African user base
-const DEFAULT_LAT = 5.6037;
-const DEFAULT_LON = -0.187;
-
 const OCCASION_CHIPS = [
   { id: 'casual', label: 'Casual', icon: 'cafe-outline' },
   { id: 'work', label: 'Work', icon: 'briefcase-outline' },
@@ -70,12 +66,20 @@ export const TodayScreen = ({ navigation }: Props) => {
   const { currentTheme } = useThemeStore();
   const { items: wardrobeItems } = useWardrobeStore();
   const { user } = useAuthStore();
-  const { generatedOutfit, isGenerating, generateOutfit, todayOccasion, setTodayOccasion } =
-    useOutfitStore();
+  const {
+    generatedOutfit,
+    outfitVariations,
+    isGenerating,
+    generateOutfit,
+    todayOccasion,
+    setTodayOccasion,
+    setGeneratedOutfit,
+  } = useOutfitStore();
   const recordOutfitWear = useOutfitStore((s) => s.recordOutfitWear);
   const calendar = useCalendarStore((s) => s.calendar);
 
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherAttempted, setWeatherAttempted] = useState(false);
   const [hasGeneratedThisSession, setHasGeneratedThisSession] = useState(false);
   const [hasLoggedToday, setHasLoggedToday] = useState(false);
   const [isLoggingWear, setIsLoggingWear] = useState(false);
@@ -93,45 +97,62 @@ export const TodayScreen = ({ navigation }: Props) => {
 
   const loadWeather = useCallback(async (): Promise<void> => {
     try {
-      let lat = DEFAULT_LAT;
-      let lon = DEFAULT_LON;
       const { status } = await Location.getForegroundPermissionsAsync();
-      if (status === 'granted') {
-        try {
-          const loc = await Location.getCurrentPositionAsync({});
-          lat = loc.coords.latitude;
-          lon = loc.coords.longitude;
-        } catch (err) {
-          if (__DEV__) console.warn('[TodayScreen] getCurrentPositionAsync', err);
-        }
+      if (status !== 'granted') {
+        setWeather(null);
+        return;
       }
-      const data = await weatherService.getCurrentWeather(lat, lon);
+      const loc = await Location.getCurrentPositionAsync({});
+      const data = await weatherService.getCurrentWeather(
+        loc.coords.latitude,
+        loc.coords.longitude
+      );
       setWeather(data);
     } catch (err) {
       if (__DEV__) console.warn('[TodayScreen] loadWeather', err);
+      setWeather(null);
+    } finally {
+      setWeatherAttempted(true);
     }
   }, []);
 
-  const ensureOutfit = useCallback(async (): Promise<void> => {
-    if (hasGeneratedThisSession) return;
-    if (wardrobeItems.length === 0) return;
-    setHasGeneratedThisSession(true);
-    try {
-      await generateOutfit({ occasion: todayOccasion });
-    } catch (err) {
-      if (__DEV__) console.warn('[TodayScreen] generateOutfit', err);
-    }
-  }, [generateOutfit, hasGeneratedThisSession, wardrobeItems.length, todayOccasion]);
+  const rankedOutfits = useMemo(() => {
+    const list = [generatedOutfit, ...outfitVariations].filter(
+      (o): o is NonNullable<typeof generatedOutfit> => o != null
+    );
+    return list;
+  }, [generatedOutfit, outfitVariations]);
+
+  const weatherPayload = useMemo(
+    () =>
+      weather ? { temperature: weather.temperature, condition: weather.condition } : undefined,
+    [weather]
+  );
 
   useEffect(() => {
     void loadWeather();
-    void ensureOutfit();
-  }, [ensureOutfit, loadWeather]);
+  }, [loadWeather]);
+
+  useEffect(() => {
+    if (!weatherAttempted || wardrobeItems.length === 0 || hasGeneratedThisSession) return;
+    setHasGeneratedThisSession(true);
+    void generateOutfit({ occasion: todayOccasion, weather: weatherPayload });
+  }, [
+    weatherAttempted,
+    wardrobeItems.length,
+    hasGeneratedThisSession,
+    generateOutfit,
+    todayOccasion,
+    weatherPayload,
+  ]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadWeather(), generateOutfit({ occasion: todayOccasion })]);
+      await Promise.all([
+        loadWeather(),
+        generateOutfit({ occasion: todayOccasion, weather: weatherPayload }),
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -160,18 +181,18 @@ export const TodayScreen = ({ navigation }: Props) => {
     async (_item: ClothingItem) => {
       setSwapSheetVisible(false);
       try {
-        await generateOutfit({ occasion: todayOccasion });
+        await generateOutfit({ occasion: todayOccasion, weather: weatherPayload });
         setHasLoggedToday(false);
       } catch (err) {
         if (__DEV__) console.warn('[TodayScreen] swap regenerate', err);
       }
     },
-    [generateOutfit, todayOccasion]
+    [generateOutfit, todayOccasion, weatherPayload]
   );
 
   const handleGenerateAnother = useCallback(async () => {
     try {
-      await generateOutfit({ occasion: todayOccasion });
+      await generateOutfit({ occasion: todayOccasion, weather: weatherPayload });
       setHasLoggedToday(false);
     } catch (err) {
       if (__DEV__) console.warn('[TodayScreen] regenerate', err);
@@ -184,13 +205,13 @@ export const TodayScreen = ({ navigation }: Props) => {
       setHasGeneratedThisSession(false);
       setHasLoggedToday(false);
       try {
-        await generateOutfit({ occasion: occasionId });
+        await generateOutfit({ occasion: occasionId, weather: weatherPayload });
         setHasGeneratedThisSession(true);
       } catch (err) {
         if (__DEV__) console.warn('[TodayScreen] occasion regenerate', err);
       }
     },
-    [generateOutfit, setTodayOccasion]
+    [generateOutfit, setTodayOccasion, weatherPayload]
   );
 
   const handleViewFullWardrobe = useCallback(() => {
@@ -329,6 +350,82 @@ export const TodayScreen = ({ navigation }: Props) => {
                   {generatedOutfit.occasion ?? 'Curated for today'}
                 </Typography>
                 <OutfitFlatLay items={generatedOutfit.items} width={SCREEN_WIDTH - 40} />
+
+                {generatedOutfit.fitReasoning && generatedOutfit.fitReasoning.length > 0 ? (
+                  <View style={{ marginTop: 16, gap: 6 }}>
+                    <Typography
+                      style={{
+                        color: currentTheme.colors.textSecondary,
+                        fontSize: 12,
+                        textTransform: 'uppercase',
+                        letterSpacing: 1,
+                      }}
+                    >
+                      Why this works
+                    </Typography>
+                    {generatedOutfit.fitReasoning.map((line) => (
+                      <Typography
+                        key={line}
+                        style={{ color: currentTheme.colors.text, fontSize: 14, lineHeight: 20 }}
+                      >
+                        {line}
+                      </Typography>
+                    ))}
+                  </View>
+                ) : null}
+
+                {rankedOutfits.length > 1 ? (
+                  <View style={{ marginTop: 20 }}>
+                    <Typography
+                      style={{
+                        color: currentTheme.colors.textSecondary,
+                        fontSize: 12,
+                        textTransform: 'uppercase',
+                        letterSpacing: 1,
+                        marginBottom: 10,
+                      }}
+                    >
+                      More suggestions
+                    </Typography>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: 'row', gap: 10 }}>
+                        {rankedOutfits.map((look, index) => {
+                          const isActive = look.id === generatedOutfit.id;
+                          return (
+                            <Pressable
+                              key={look.id}
+                              onPress={() => setGeneratedOutfit(look)}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected: isActive }}
+                              style={{
+                                paddingHorizontal: 14,
+                                paddingVertical: 10,
+                                borderRadius: 16,
+                                backgroundColor: isActive
+                                  ? currentTheme.colors.primary
+                                  : currentTheme.colors.mutedSurface,
+                                borderWidth: 1.5,
+                                borderColor: isActive
+                                  ? currentTheme.colors.secondary
+                                  : 'transparent',
+                              }}
+                            >
+                              <Typography
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: '600',
+                                  color: isActive ? '#FFF' : currentTheme.colors.text,
+                                }}
+                              >
+                                Look {index + 1}
+                              </Typography>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  </View>
+                ) : null}
               </View>
             ) : (
               <HeroPlaceholder theme={currentTheme} />

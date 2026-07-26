@@ -86,16 +86,23 @@ export interface AuthState {
   updateUser: (user: Partial<User>) => Promise<void>;
 }
 
+import type { HslColor } from '../utils/hslColor';
+
 // Wardrobe Types
 export interface ClothingItem {
   id: string;
   imageUrl: string;
   category: string;
   subCategory?: string;
+  /** Display names derived from HSL */
   colors: string[];
+  /** Canonical colour storage */
+  colorsHsl: HslColor[];
   brand?: string;
   tags: string[];
-  notes?: string; // Custom notes for items
+  notes?: string;
+  material?: string;
+  pattern?: string;
   createdAt: string;
   lastWorn?: string;
   wornCount?: number;
@@ -123,8 +130,8 @@ export interface WardrobeState {
   favoriteItemIds: string[];
   fetchItems: () => Promise<void>;
   addItem: (item: Omit<ClothingItem, 'id' | 'createdAt'>) => void;
-  updateItem: (id: string, updates: Partial<ClothingItem>) => void;
-  deleteItem: (id: string) => void;
+  updateItem: (id: string, updates: Partial<ClothingItem>) => Promise<void>;
+  deleteItem: (id: string) => Promise<void>;
   getItemsByCategory: (category: string) => ClothingItem[];
   setFilter: (key: keyof WardrobeFilters, value: string | undefined) => void;
   toggleItemFavorite: (id: string) => void;

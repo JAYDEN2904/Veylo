@@ -332,6 +332,12 @@ export const ProfileScreen = ({ navigation }: any) => {
             Preferences
           </Typography>
           <SettingItem
+            icon="color-palette-outline"
+            label="Style profile"
+            value="Retake the style quiz"
+            onPress={() => navigation.navigate('StyleProfileEdit')}
+          />
+          <SettingItem
             icon="settings-outline"
             label="App Preferences"
             value="Theme, language, and more"

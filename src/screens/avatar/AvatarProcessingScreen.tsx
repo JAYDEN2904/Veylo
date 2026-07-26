@@ -22,12 +22,12 @@ import { BodyType, AvatarGenerationResult } from '../../types';
 const { width, height } = Dimensions.get('window');
 
 const PROCESSING_STEPS = [
-  { progress: 10, message: 'Uploading your photo...', icon: 'cloud-upload-outline' },
-  { progress: 25, message: 'Analyzing facial features...', icon: 'scan-outline' },
-  { progress: 40, message: 'Detecting face structure...', icon: 'eye-outline' },
-  { progress: 55, message: 'Applying body type...', icon: 'body-outline' },
-  { progress: 70, message: 'Generating avatar image...', icon: 'image-outline' },
-  { progress: 85, message: 'Applying textures and details...', icon: 'color-palette-outline' },
+  { progress: 10, message: 'Uploading your full-body photo...', icon: 'cloud-upload-outline' },
+  { progress: 25, message: 'Reading pose and proportions...', icon: 'scan-outline' },
+  { progress: 40, message: 'Matching your look and build...', icon: 'body-outline' },
+  { progress: 55, message: 'Applying selected body type...', icon: 'resize-outline' },
+  { progress: 70, message: 'Generating full-body avatar...', icon: 'image-outline' },
+  { progress: 85, message: 'Refining details for try-on...', icon: 'color-palette-outline' },
   { progress: 95, message: 'Finalizing your avatar...', icon: 'checkmark-circle-outline' },
 ];
 
