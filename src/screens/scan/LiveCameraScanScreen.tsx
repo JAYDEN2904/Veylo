@@ -1,21 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Platform } from 'react-native';
-import { Camera, CameraType, FlashMode } from 'expo-camera';
+import React, { useCallback, useState } from 'react';
+import { Alert, Platform, TouchableOpacity, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withSequence,
-  withTiming,
-  withSpring,
-  withDelay,
-  FadeIn,
-  FadeInDown,
-  cancelAnimation,
-} from 'react-native-reanimated';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
-import { Screen, Typography } from '../../components/common';
+import { Screen, Typography, PrimaryButton, SecondaryButton } from '../../components/common';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
 import {
@@ -24,122 +12,19 @@ import {
 } from '../../navigation/tabBarStyles';
 import { getBottomTabNavigatorNavigation } from '../../navigation/screenProps';
 import { theme } from '../../theme';
-import { LinearGradient } from 'expo-linear-gradient';
 
-const { width } = Dimensions.get('window');
-const VIEWFINDER_SIZE = width * 0.75;
+/** Square crop helps keep garments centered like the old viewfinder. */
+const GARMENT_ASPECT: [number, number] = [1, 1];
 
-const FrameCorner = ({ position }: { position: 'tl' | 'tr' | 'bl' | 'br' }) => {
-  const cornerStyles: Record<string, object> = {
-    tl: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 24 },
-    tr: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 24 },
-    bl: {
-      bottom: 0,
-      left: 0,
-      borderBottomWidth: 4,
-      borderLeftWidth: 4,
-      borderBottomLeftRadius: 24,
-    },
-    br: {
-      bottom: 0,
-      right: 0,
-      borderBottomWidth: 4,
-      borderRightWidth: 4,
-      borderBottomRightRadius: 24,
-    },
-  };
-
-  return (
-    <Animated.View
-      entering={FadeIn.duration(800).delay(300)}
-      style={[
-        {
-          position: 'absolute',
-          width: 40,
-          height: 40,
-          borderColor: theme.colors.secondary,
-        },
-        cornerStyles[position],
-      ]}
-    />
-  );
-};
-
-const ScanLine = () => {
-  const translateY = useSharedValue(0);
-
-  useEffect(() => {
-    translateY.value = withRepeat(
-      withSequence(
-        withTiming(VIEWFINDER_SIZE - 4, { duration: 2000 }),
-        withTiming(0, { duration: 2000 })
-      ),
-      -1,
-      false
-    );
-
-    return () => {
-      cancelAnimation(translateY);
-    };
-  }, []);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
-
-  return (
-    <Animated.View
-      style={[
-        {
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 2,
-        },
-        animatedStyle,
-      ]}
-    >
-      <LinearGradient
-        colors={['transparent', theme.colors.secondary, 'transparent']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={{ flex: 1 }}
-      />
-    </Animated.View>
-  );
-};
-
-const ScanTip = ({ icon, text, delay }: { icon: string; text: string; delay: number }) => (
-  <Animated.View
-    entering={FadeInDown.duration(500).delay(delay)}
-    style={{
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: 'rgba(255,255,255,0.1)',
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 24,
-      marginHorizontal: 4,
-    }}
-  >
-    <Ionicons
-      name={icon as keyof typeof Ionicons.glyphMap}
-      size={16}
-      color={theme.colors.secondary}
-      style={{ marginRight: 8 }}
-    />
-    <Typography style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '500' }}>{text}</Typography>
-  </Animated.View>
-);
+const SCAN_TIPS = [
+  { icon: 'sunny-outline' as const, text: 'Good lighting' },
+  { icon: 'crop-outline' as const, text: 'Center the item' },
+  { icon: 'square-outline' as const, text: 'Flat, plain background' },
+];
 
 export const LiveCameraScanScreen = ({ navigation }: any) => {
   const { currentTheme, mode } = useThemeStore();
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [type, setType] = useState<CameraType>(CameraType.back);
-  const [flash, setFlash] = useState(false);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const cameraRef = useRef<Camera | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -167,367 +52,206 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
     tabNavigation?.navigate('TodayStack' as never);
   }, [navigation]);
 
-  const captureScale = useSharedValue(1);
-  const captureRing = useSharedValue(1);
-  const pulseOpacity = useSharedValue(0.5);
+  const routeCapturedUris = (uris: string[]) => {
+    if (uris.length === 0) return;
+    if (uris.length === 1) {
+      navigation.navigate('ScanProcessing', { imageUri: uris[0] });
+      return;
+    }
+    navigation.navigate('BatchScanQueue', { uris });
+  };
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === 'granted');
-    })();
-  }, []);
+  const takePicture = async () => {
+    if (isBusy) return;
+    setIsBusy(true);
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Camera access needed',
+          'To scan your wardrobe, Veylo needs access to your camera.'
+        );
+        return;
+      }
 
-  useEffect(() => {
-    pulseOpacity.value = withRepeat(
-      withSequence(withTiming(0.8, { duration: 1000 }), withTiming(0.4, { duration: 1000 })),
-      -1,
-      true
-    );
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: GARMENT_ASPECT,
+        quality: 0.8,
+      });
 
-    return () => {
-      cancelAnimation(pulseOpacity);
-    };
-  }, []);
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      routeCapturedUris([result.assets[0].uri]);
+    } catch (err) {
+      if (__DEV__) console.error('[LiveCameraScan] takePicture', err);
+      Alert.alert('Error', 'Could not open the camera. Please try again.');
+    } finally {
+      setIsBusy(false);
+    }
+  };
 
   const pickFromGallery = async () => {
+    if (isBusy) return;
+    setIsBusy(true);
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
-        if (__DEV__) console.warn('[LiveCameraScan] media library permission denied');
+        Alert.alert(
+          'Photo library access needed',
+          'Allow photo access to import wardrobe items from your library.'
+        );
         return;
       }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         quality: 0.8,
         selectionLimit: 10,
       });
+
       if (result.canceled) return;
-      const assets = result.assets ?? [];
-      if (assets.length === 0) return;
-      const uris = assets.map((a) => a.uri).filter(Boolean) as string[];
-      if (uris.length === 1) {
-        navigation.navigate('ScanProcessing', { imageUri: uris[0] });
-      } else {
-        navigation.navigate('BatchScanQueue', { uris });
-      }
+      const uris = (result.assets ?? []).map((asset) => asset.uri).filter(Boolean);
+      routeCapturedUris(uris);
     } catch (err) {
       if (__DEV__) console.error('[LiveCameraScan] gallery pick failed:', err);
-    }
-  };
-
-  const takePicture = async () => {
-    if (!cameraRef.current || isCapturing) return;
-    setIsCapturing(true);
-
-    captureScale.value = withSequence(
-      withTiming(0.9, { duration: 100 }),
-      withSpring(1, { damping: 8 })
-    );
-    captureRing.value = withSequence(
-      withTiming(1.3, { duration: 150 }),
-      withTiming(1, { duration: 150 })
-    );
-
-    try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-        base64: false,
-      });
-      navigation.navigate('ScanProcessing', { imageUri: photo.uri });
-    } catch (error) {
-      if (__DEV__) console.error('[LiveCameraScan] takePicture', error);
+      Alert.alert('Error', 'Could not open your photo library. Please try again.');
     } finally {
-      setIsCapturing(false);
+      setIsBusy(false);
     }
   };
-
-  const captureButtonStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: captureScale.value }],
-  }));
-
-  const captureRingStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: captureRing.value }],
-    opacity: pulseOpacity.value,
-  }));
-
-  if (hasPermission === null) {
-    return (
-      <Screen className="bg-primary justify-center items-center">
-        <Typography className="text-white">Requesting camera permission...</Typography>
-      </Screen>
-    );
-  }
-
-  if (hasPermission === false) {
-    return (
-      <Screen className="bg-primary justify-center items-center p-6">
-        <Ionicons
-          name="camera-outline"
-          size={64}
-          color={theme.colors.secondary}
-          style={{ marginBottom: 24, opacity: 0.5 }}
-        />
-        <Typography className="text-white text-xl font-bold text-center mb-2">
-          Camera Access Needed
-        </Typography>
-        <Typography className="text-gray-400 text-center mb-6">
-          To scan your wardrobe, Veylo needs access to your camera.
-        </Typography>
-        <TouchableOpacity
-          onPress={() => Camera.requestCameraPermissionsAsync()}
-          style={{
-            backgroundColor: theme.colors.secondary,
-            paddingHorizontal: 32,
-            paddingVertical: 14,
-            borderRadius: 28,
-          }}
-        >
-          <Typography style={{ color: theme.colors.primary, fontWeight: '700' }}>
-            Grant Permission
-          </Typography>
-        </TouchableOpacity>
-      </Screen>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      <Camera
-        style={styles.camera}
-        type={type}
-        ref={cameraRef}
-        flashMode={flash ? FlashMode.on : FlashMode.off}
+    <Screen className="flex-1" style={{ backgroundColor: currentTheme.colors.background }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingTop: Platform.OS === 'ios' ? 56 : 40,
+          paddingHorizontal: 20,
+          paddingBottom: 12,
+        }}
       >
-        <LinearGradient colors={['rgba(0,0,0,0.7)', 'transparent']} style={styles.topOverlay}>
-          <Animated.View entering={FadeInDown.duration(500)} style={styles.header}>
-            <TouchableOpacity onPress={handleCloseScan} style={styles.headerButton}>
-              <Ionicons name="close" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-            <View style={styles.headerCenter}>
-              <Typography style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700' }}>
-                Scan Item
-              </Typography>
-            </View>
-            <TouchableOpacity
-              onPress={() => setFlash(!flash)}
-              style={[styles.headerButton, flash && { backgroundColor: theme.colors.secondary }]}
-            >
-              <Ionicons
-                name={flash ? 'flash' : 'flash-off'}
-                size={20}
-                color={flash ? theme.colors.primary : '#FFFFFF'}
-              />
-            </TouchableOpacity>
-          </Animated.View>
-        </LinearGradient>
+        <TouchableOpacity
+          onPress={handleCloseScan}
+          accessibilityRole="button"
+          accessibilityLabel="Close scan"
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: currentTheme.colors.surface,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Ionicons name="close" size={22} color={currentTheme.colors.text} />
+        </TouchableOpacity>
+        <Typography style={{ fontSize: 18, fontWeight: '700', color: currentTheme.colors.text }}>
+          Scan Item
+        </Typography>
+        <View style={{ width: 44 }} />
+      </View>
 
-        <Animated.View entering={FadeIn.duration(800)} style={styles.viewfinderContainer}>
-          <View style={styles.viewfinder}>
-            <FrameCorner position="tl" />
-            <FrameCorner position="tr" />
-            <FrameCorner position="bl" />
-            <FrameCorner position="br" />
-            <ScanLine />
-            <View style={styles.centerGuide}>
-              <Ionicons name="shirt-outline" size={48} color="rgba(255,255,255,0.2)" />
-            </View>
+      <View style={{ flex: 1, paddingHorizontal: 24, justifyContent: 'center' }}>
+        <Animated.View
+          entering={FadeInDown.duration(400)}
+          style={{ alignItems: 'center', marginBottom: 32 }}
+        >
+          <View
+            style={{
+              width: 96,
+              height: 96,
+              borderRadius: 48,
+              backgroundColor: theme.colors.secondary + '33',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 20,
+            }}
+          >
+            <Ionicons name="shirt-outline" size={44} color={theme.colors.primary} />
           </View>
+          <Typography
+            variant="header"
+            style={{
+              fontSize: 28,
+              fontWeight: '700',
+              color: currentTheme.colors.text,
+              textAlign: 'center',
+              marginBottom: 8,
+            }}
+          >
+            Add to your closet
+          </Typography>
+          <Typography
+            style={{
+              color: currentTheme.colors.textSecondary,
+              textAlign: 'center',
+              fontSize: 15,
+              lineHeight: 22,
+            }}
+          >
+            Take a clear photo of one garment, or import several from your library.
+          </Typography>
         </Animated.View>
 
-        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.bottomOverlay}>
-          <Animated.View
-            entering={FadeInDown.duration(500).delay(400)}
-            style={styles.tipsContainer}
-          >
-            <ScanTip icon="sunny-outline" text="Good lighting" delay={600} />
-            <ScanTip icon="crop-outline" text="Center item" delay={700} />
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.duration(500).delay(450)} style={styles.libraryRow}>
-            <TouchableOpacity
-              onPress={pickFromGallery}
-              accessibilityRole="button"
-              accessibilityLabel="Import photos from library"
-              style={styles.libraryButton}
+        <Animated.View
+          entering={FadeInDown.duration(400).delay(80)}
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            gap: 8,
+            marginBottom: 28,
+          }}
+        >
+          {SCAN_TIPS.map((tip) => (
+            <View
+              key={tip.text}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: currentTheme.colors.surface,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 20,
+              }}
             >
               <Ionicons
-                name="cloud-upload-outline"
-                size={18}
-                color="#FFFFFF"
-                style={{ marginRight: 8 }}
+                name={tip.icon}
+                size={14}
+                color={theme.colors.primary}
+                style={{ marginRight: 6 }}
               />
-              <Typography style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>
-                Import from Library
+              <Typography
+                style={{ fontSize: 12, fontWeight: '500', color: currentTheme.colors.text }}
+              >
+                {tip.text}
               </Typography>
-            </TouchableOpacity>
-          </Animated.View>
+            </View>
+          ))}
+        </Animated.View>
 
-          <Animated.View entering={FadeInDown.duration(500).delay(200)} style={styles.controls}>
-            <View style={styles.sideButtonPlaceholder} />
-
-            <TouchableOpacity
-              onPress={takePicture}
-              disabled={isCapturing}
-              activeOpacity={0.9}
-              style={styles.captureButtonOuter}
-            >
-              <Animated.View style={[styles.captureRing, captureRingStyle]} />
-              <Animated.View style={[styles.captureButton, captureButtonStyle]}>
-                <LinearGradient
-                  colors={[theme.colors.secondary, '#E8D89A']}
-                  style={styles.captureGradient}
-                >
-                  {isCapturing && (
-                    <View
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 6,
-                        backgroundColor: theme.colors.primary,
-                      }}
-                    />
-                  )}
-                </LinearGradient>
-              </Animated.View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setType(type === CameraType.back ? CameraType.front : CameraType.back)}
-              style={styles.sideButton}
-            >
-              <Ionicons name="camera-reverse" size={28} color="#FFFFFF" />
-            </TouchableOpacity>
-          </Animated.View>
-        </LinearGradient>
-      </Camera>
-    </View>
+        <Animated.View entering={FadeInDown.duration(400).delay(140)} style={{ gap: 12 }}>
+          <PrimaryButton
+            title="Take photo"
+            icon="camera"
+            onPress={takePicture}
+            loading={isBusy}
+            disabled={isBusy}
+            accessibilityLabel="Take photo of clothing item"
+          />
+          <SecondaryButton
+            title="Import from library"
+            icon="images"
+            onPress={pickFromGallery}
+            disabled={isBusy}
+            accessibilityLabel="Import photos from library"
+          />
+        </Animated.View>
+      </View>
+    </Screen>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  camera: {
-    flex: 1,
-  },
-  topOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  viewfinderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  viewfinder: {
-    width: VIEWFINDER_SIZE,
-    height: VIEWFINDER_SIZE,
-    position: 'relative',
-  },
-  centerGuide: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  bottomOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingBottom: Platform.OS === 'ios' ? 50 : 30,
-    paddingTop: 60,
-  },
-  tipsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  libraryRow: {
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  libraryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-  },
-  controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 40,
-  },
-  sideButtonPlaceholder: {
-    width: 56,
-    height: 56,
-  },
-  sideButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  captureButtonOuter: {
-    marginHorizontal: 32,
-    width: 80,
-    height: 80,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  captureRing: {
-    position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: theme.colors.secondary,
-  },
-  captureButton: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    overflow: 'hidden',
-  },
-  captureGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});

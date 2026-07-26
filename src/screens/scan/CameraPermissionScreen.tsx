@@ -3,7 +3,7 @@ import { ScrollView, TouchableOpacity, Linking, Alert } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Screen, Typography, Button, StyledView } from '../../components/common';
 import { theme } from '../../theme';
-import { Camera } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -13,7 +13,7 @@ export const CameraPermissionScreen = ({ navigation }: any) => {
   const handleRequestPermission = async () => {
     setIsRequesting(true);
     try {
-      const { status } = await Camera.requestCameraPermissionsAsync();
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status === 'granted') {
         navigation.replace('LiveCameraScan');
       } else {
