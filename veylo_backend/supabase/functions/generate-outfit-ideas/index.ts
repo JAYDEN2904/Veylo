@@ -19,6 +19,7 @@ interface Payload {
   persist?: boolean;
   weather?: WeatherInput;
   must_include_item_id?: string;
+  must_include_item_ids?: string[];
 }
 
 interface Item extends ScoringItem {
@@ -35,11 +36,28 @@ function canonicalSlot(category: string): Slot | null {
     return 'top';
   if (c.startsWith('bottom') || c === 'pants' || c === 'jeans' || c === 'shorts' || c === 'skirt')
     return 'bottom';
-  if (c === 'dress' || c === 'jumpsuit') return 'dress';
+  if (c === 'dress' || c === 'jumpsuit' || c === 'dresses') return 'dress';
   if (c === 'shoes' || c === 'footwear' || c === 'sneakers') return 'shoes';
   if (c === 'outerwear' || c === 'jacket' || c === 'coat') return 'outerwear';
   if (c === 'accessory' || c === 'accessories' || c === 'bag' || c === 'hat') return 'accessory';
   return null;
+}
+
+function normalizeOccasion(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const key = raw.trim().toLowerCase();
+  const map: Record<string, string> = {
+    casual: 'Casual',
+    work: 'Work',
+    formal: 'Formal',
+    exercise: 'Exercise',
+    sport: 'Exercise',
+    date: 'Date Night',
+    'date night': 'Date Night',
+    party: 'Party',
+    evening: 'Party',
+  };
+  return map[key] ?? raw;
 }
 
 function styleTermSet(prefs: string[]): string[] {
@@ -66,40 +84,50 @@ function pickOutfit(
   alreadyUsed: Set<string>,
   preferDress: boolean,
   weather?: WeatherInput | null,
-  mustInclude?: Item | null
+  mustIncludeItems: Item[] = []
 ): { picks: Item[]; score: number; reasoning: string[] } | null {
+  const anchors = mustIncludeItems.filter((item) => !alreadyUsed.has(item.id));
+  const anchorIsDress = anchors.some((item) => canonicalSlot(item.category) === 'dress');
   const tryDress =
-    (preferDress || (mustInclude != null && canonicalSlot(mustInclude.category) === 'dress')) &&
-    ((bySlot.get('dress')?.length ?? 0) > 0 ||
-      (mustInclude != null && canonicalSlot(mustInclude.category) === 'dress'));
+    (preferDress || anchorIsDress) && ((bySlot.get('dress')?.length ?? 0) > 0 || anchorIsDress);
   const order: readonly Slot[] = tryDress ? DRESS_SLOTS : SLOT_ORDER;
   const picks: Item[] = [];
-  const forcedSlot = mustInclude ? canonicalSlot(mustInclude.category) : null;
+  const pickedIds = new Set<string>();
+
+  for (const anchor of anchors) {
+    if (!pickedIds.has(anchor.id)) {
+      picks.push(anchor);
+      pickedIds.add(anchor.id);
+    }
+  }
 
   for (const slot of order) {
-    if (mustInclude && forcedSlot === slot) {
-      if (!alreadyUsed.has(mustInclude.id)) picks.push(mustInclude);
-      continue;
-    }
+    const hasInSlot = picks.some((item) => canonicalSlot(item.category) === slot);
+    if (hasInSlot) continue;
+
     const candidates = bySlot.get(slot) ?? [];
     if (candidates.length === 0) continue;
 
     let best: Item | null = null;
     let bestScore = -Infinity;
     for (const item of candidates) {
-      if (alreadyUsed.has(item.id)) continue;
-      if (mustInclude && item.id === mustInclude.id) continue;
+      if (alreadyUsed.has(item.id) || pickedIds.has(item.id)) continue;
       const s = scoreItemComposite(item, picks, styleTerms, weather, occasion);
       if (s > bestScore) {
         bestScore = s;
         best = item;
       }
     }
-    if (best) picks.push(best);
+    if (best) {
+      picks.push(best);
+      pickedIds.add(best.id);
+    }
   }
 
-  if (mustInclude && !picks.some((p) => p.id === mustInclude.id)) {
-    picks.push(mustInclude);
+  for (const anchor of anchors) {
+    if (!picks.some((p) => p.id === anchor.id)) {
+      picks.push(anchor);
+    }
   }
 
   const slots = new Set(picks.map((p) => canonicalSlot(p.category)));
@@ -129,10 +157,13 @@ Deno.serve(async (req) => {
   }
 
   const count = Math.min(Math.max(payload.count ?? 3, 1), 5);
-  const occasion = payload.occasion;
+  const occasion = normalizeOccasion(payload.occasion);
   const styleTerms = styleTermSet(payload.style_preferences ?? []);
   const weather = payload.weather ?? null;
-  const mustIncludeId = payload.must_include_item_id;
+  const mustIncludeIds = [
+    ...(payload.must_include_item_ids ?? []),
+    ...(payload.must_include_item_id ? [payload.must_include_item_id] : []),
+  ].filter((id, index, self) => self.indexOf(id) === index);
 
   let query = userClient
     .from('clothing_items')
@@ -142,7 +173,8 @@ Deno.serve(async (req) => {
     .eq('status', 'active');
 
   if (payload.season) {
-    query = query.contains('season', [payload.season]);
+    // Season values are stored lowercase from Vision (summer, fall, …).
+    query = query.contains('season', [payload.season.trim().toLowerCase()]);
   }
 
   const { data, error } = await query;
@@ -155,10 +187,10 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: true, outfits: [], reason: 'empty_wardrobe' });
   }
 
-  const mustInclude = mustIncludeId
-    ? (items.find((item) => item.id === mustIncludeId) ?? null)
-    : null;
-  if (mustIncludeId && !mustInclude) {
+  const mustIncludeItems = mustIncludeIds
+    .map((id) => items.find((item) => item.id === id) ?? null)
+    .filter((item): item is Item => item != null);
+  if (mustIncludeIds.length > 0 && mustIncludeItems.length !== mustIncludeIds.length) {
     return jsonResponse({ ok: true, outfits: [], reason: 'filters_too_strict' });
   }
 
@@ -170,7 +202,22 @@ Deno.serve(async (req) => {
     bySlot.get(slot)!.push(item);
   }
 
-  const preferDress = occasion === 'Formal' || occasion === 'Date Night' || occasion === 'Party';
+  const hasTop = (bySlot.get('top')?.length ?? 0) > 0;
+  const hasBottom = (bySlot.get('bottom')?.length ?? 0) > 0;
+  const hasDress = (bySlot.get('dress')?.length ?? 0) > 0;
+  if (!hasDress && !(hasTop && hasBottom)) {
+    return jsonResponse({
+      ok: true,
+      outfits: [],
+      reason: 'insufficient_categories',
+      message:
+        'You need at least a top and a bottom (or a dress) in your wardrobe to build an outfit.',
+    });
+  }
+
+  const preferDress =
+    mustIncludeItems.length === 0 &&
+    (occasion === 'Formal' || occasion === 'Date Night' || occasion === 'Party');
   const usedIds = new Set<string>();
   const outfits: Array<{
     id?: string;
@@ -184,27 +231,33 @@ Deno.serve(async (req) => {
   }> = [];
 
   for (let i = 0; i < count; i++) {
-    let result = pickOutfit(
-      bySlot,
-      occasion,
-      styleTerms,
-      usedIds,
-      preferDress,
-      weather,
-      mustInclude
-    );
+    let result: ReturnType<typeof pickOutfit> = null;
     let relaxed = false;
-    if (!result && occasion) {
+    try {
       result = pickOutfit(
         bySlot,
-        undefined,
+        occasion,
         styleTerms,
         usedIds,
         preferDress,
         weather,
-        mustInclude
+        mustIncludeItems
       );
-      relaxed = true;
+      if (!result && occasion && mustIncludeItems.length === 0) {
+        result = pickOutfit(
+          bySlot,
+          undefined,
+          styleTerms,
+          usedIds,
+          preferDress,
+          weather,
+          mustIncludeItems
+        );
+        relaxed = true;
+      }
+    } catch (err) {
+      console.error('[generate-outfit-ideas] pickOutfit failed', err);
+      result = null;
     }
     if (!result) break;
 
@@ -219,6 +272,39 @@ Deno.serve(async (req) => {
       fit_reasoning: result.reasoning,
       used_relaxed_filters: relaxed,
     });
+  }
+
+  // Last resort: with a top+bottom (or dress) wardrobe, always return one outfit.
+  if (outfits.length === 0) {
+    const dress = bySlot.get('dress')?.[0];
+    const top = bySlot.get('top')?.[0];
+    const bottom = bySlot.get('bottom')?.[0];
+    const anchorPicks =
+      mustIncludeItems.length > 0
+        ? mustIncludeItems
+        : dress != null
+          ? [dress]
+          : top != null && bottom != null
+            ? [top, bottom]
+            : [];
+    const anchorSlots = new Set(anchorPicks.map((item) => canonicalSlot(item.category)));
+    const validAnchorOutfit =
+      anchorSlots.has('dress') || (anchorSlots.has('top') && anchorSlots.has('bottom'));
+    if (anchorPicks.length > 0 && validAnchorOutfit) {
+      console.log('[generate-outfit-ideas] using forced fallback outfit', {
+        itemCount: items.length,
+        slots: [...bySlot.keys()],
+      });
+      outfits.push({
+        name: occasion ?? 'Outfit',
+        occasion: occasion ?? 'Casual',
+        items: anchorPicks,
+        style_match_score: 65,
+        fit_score: 65,
+        fit_reasoning: ['A simple pairing from your wardrobe.'],
+        used_relaxed_filters: true,
+      });
+    }
   }
 
   if (payload.persist && outfits.length > 0) {

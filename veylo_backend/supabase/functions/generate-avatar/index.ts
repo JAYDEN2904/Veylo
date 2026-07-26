@@ -1,11 +1,11 @@
-// generate-avatar — Imagen 3 subject customization via Vertex AI.
+// generate-avatar — full-body avatar via Vertex Gemini image model.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 import { logUsage } from '../_shared/usage.ts';
-import { fetchImageAsBase64, firstPredictionBytes, vertexPredict } from '../_shared/vertex.ts';
+import { fetchImage, vertexGenerateContentImage } from '../_shared/vertex.ts';
 
 interface Payload {
   /** Storage path in item-photos or avatars bucket */
@@ -15,7 +15,8 @@ interface Payload {
   body_type?: string;
 }
 
-const IMAGEN_MODEL = 'imagen-3.0-capability-001';
+/** Imagen capability models were retired; Gemini Flash Image is the supported path. */
+const AVATAR_MODEL = 'gemini-2.5-flash-image';
 
 const BODY_TYPE_PROMPTS: Record<string, string> = {
   petite: 'petite build, under 5 feet 4 inches tall',
@@ -30,10 +31,12 @@ const BODY_TYPE_PROMPTS: Record<string, string> = {
 function buildAvatarPrompt(bodyType?: string): string {
   const build = (bodyType && BODY_TYPE_PROMPTS[bodyType]) ?? BODY_TYPE_PROMPTS.custom;
   return (
-    `Create an image about the person [1] to match the description: ` +
-    `a full-body photorealistic portrait of the person [1] with ${build}, ` +
-    `standing in a relaxed neutral pose, facing the camera, plain light gray studio background, ` +
-    `soft even lighting, high quality, natural skin texture, wearing simple neutral fitted clothing.`
+    `Using the person in the reference photo, create a single full-body photorealistic avatar ` +
+    `of that same person with ${build}. ` +
+    `Keep their face, skin tone, hair, and identity recognizable. ` +
+    `They should stand in a relaxed neutral pose, facing the camera, on a plain light gray studio background, ` +
+    `with soft even lighting, natural skin texture, and simple neutral fitted clothing. ` +
+    `Output one polished full-body portrait only — no collage, text, or watermark.`
   );
 }
 
@@ -66,9 +69,9 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Cannot read photo', detail: signErr?.message }, { status: 400 });
   }
 
-  let referenceB64: string;
+  let referenceImage;
   try {
-    referenceB64 = await fetchImageAsBase64(signed.signedUrl);
+    referenceImage = await fetchImage(signed.signedUrl);
   } catch (err) {
     return jsonResponse(
       { error: 'Could not download photo', detail: String(err) },
@@ -83,7 +86,7 @@ Deno.serve(async (req) => {
   const { error: pendingErr } = await userClient.from('avatars').insert({
     id: avatarRowId,
     user_id: user.id,
-    provider: 'google_imagen',
+    provider: 'google_gemini',
     external_id: null,
     thumbnail_path: thumbPath,
     body_type: payload.body_type ?? null,
@@ -99,33 +102,18 @@ Deno.serve(async (req) => {
   }
 
   let generatedBytes: Uint8Array;
+  let contentType = 'image/jpeg';
   try {
-    const prompt = buildAvatarPrompt(payload.body_type);
-    const predictions = await vertexPredict(
-      IMAGEN_MODEL,
-      [
-        {
-          prompt,
-          referenceImages: [
-            {
-              referenceType: 'REFERENCE_TYPE_SUBJECT',
-              referenceId: 1,
-              referenceImage: {
-                bytesBase64Encoded: referenceB64,
-              },
-              subjectImageConfig: {
-                subjectDescription: 'the person',
-                subjectType: 'SUBJECT_TYPE_PERSON',
-              },
-            },
-          ],
-        },
-      ],
-      { sampleCount: 1 }
-    );
-    generatedBytes = firstPredictionBytes(predictions).bytes;
+    const generated = await vertexGenerateContentImage(AVATAR_MODEL, {
+      prompt: buildAvatarPrompt(payload.body_type),
+      imageBase64: referenceImage.base64,
+      mimeType: referenceImage.mimeType,
+      aspectRatio: '3:4',
+    });
+    generatedBytes = generated.bytes;
+    contentType = generated.mimeType.startsWith('image/') ? generated.mimeType : 'image/png';
   } catch (err) {
-    console.error('[generate-avatar] vertex predict failed', err);
+    console.error('[generate-avatar] vertex generateContent failed', err);
     await userClient
       .from('avatars')
       .update({ status: 'failed', error: String(err) })
@@ -139,7 +127,7 @@ Deno.serve(async (req) => {
   const { error: upErr } = await userClient.storage
     .from('avatars')
     .upload(thumbPath, generatedBytes, {
-      contentType: 'image/jpeg',
+      contentType,
       upsert: true,
     });
 
@@ -184,7 +172,7 @@ Deno.serve(async (req) => {
     provider: 'google',
     units: 1,
     cost_usd: 0.04,
-    metadata: { model: IMAGEN_MODEL, body_type: payload.body_type ?? null },
+    metadata: { model: AVATAR_MODEL, body_type: payload.body_type ?? null },
   });
 
   const { data: pub } = await userClient.storage.from('avatars').createSignedUrl(thumbPath, 3600);
@@ -193,6 +181,6 @@ Deno.serve(async (req) => {
     ok: true,
     avatar: row,
     signed_thumbnail_url: pub?.signedUrl ?? null,
-    message: 'Avatar generated with Imagen 3 Customization.',
+    message: 'Avatar generated with Gemini Flash Image.',
   });
 });

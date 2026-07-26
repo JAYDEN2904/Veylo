@@ -101,7 +101,9 @@ function scoreColour(item: ScoringItem, picked: ScoringItem[]): number {
 }
 
 function blob(item: ScoringItem): string {
-  return [...item.tags, item.sub_category ?? '', ...item.colors].join(' ').toLowerCase();
+  const tags = item.tags ?? [];
+  const colors = item.colors ?? [];
+  return [...tags, item.sub_category ?? '', ...colors].join(' ').toLowerCase();
 }
 
 function scoreFormality(item: ScoringItem, picked: ScoringItem[], occasion?: string): number {
@@ -136,7 +138,7 @@ function scoreWeatherItem(item: ScoringItem, weather?: WeatherInput | null): num
   const temp = weather.temperature;
   const condition = weather.condition.toLowerCase();
   const category = item.category.toLowerCase();
-  const tags = item.tags.map((t) => t.toLowerCase());
+  const tags = (item.tags ?? []).map((t) => t.toLowerCase());
 
   if (temp >= 75) {
     if (category.includes('outerwear') && !tags.some((t) => t.includes('light'))) return 25;

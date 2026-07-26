@@ -74,7 +74,9 @@ const ATHLETIC_HINTS = [
 ];
 
 function tagBlob(item: ScoringItemInput): string {
-  return [...item.tags, item.sub_category ?? '', ...item.colors].join(' ').toLowerCase();
+  const tags = item.tags ?? [];
+  const colors = item.colors ?? [];
+  return [...tags, item.sub_category ?? '', ...colors].join(' ').toLowerCase();
 }
 
 function hasHint(blob: string, hints: string[]): boolean {

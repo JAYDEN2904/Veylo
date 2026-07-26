@@ -166,7 +166,9 @@ export type GenerateOutfitRequest = {
   style_preferences?: string[];
   count?: number;
   persist?: boolean;
-  /** Force this clothing_items.id into every returned outfit */
+  /** Force these clothing_items.id values into every returned outfit */
+  must_include_item_ids?: string[];
+  /** @deprecated Use must_include_item_ids */
   must_include_item_id?: string;
   weather?: {
     temperature: number;
@@ -198,7 +200,8 @@ export type GeneratedOutfit = {
 export type GenerateOutfitResponse = {
   ok: true;
   outfits: GeneratedOutfit[];
-  reason?: 'empty_wardrobe';
+  reason?: 'empty_wardrobe' | 'filters_too_strict' | 'insufficient_categories';
+  message?: string;
 };
 
 // -------------------------------------------------------------------

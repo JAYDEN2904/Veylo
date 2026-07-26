@@ -44,7 +44,7 @@ const CATEGORY_MAP: Record<string, string[]> = {
 export const CreateOutfitScreen = ({ navigation }: Props) => {
   const t = useThemeStore((s) => s.currentTheme);
   const themeMode = useThemeStore((s) => s.mode);
-  const { addOutfit } = useOutfitStore();
+  const { addOutfit, generateOutfit } = useOutfitStore();
   const { items } = useWardrobeStore();
   const { user } = useAuthStore();
 
@@ -98,7 +98,16 @@ export const CreateOutfitScreen = ({ navigation }: Props) => {
   };
 
   const handleStyleWithAI = () => {
-    navigation.navigate('GenerateOutfitFlow');
+    if (selectedItems.length === 0) {
+      navigation.navigate('GenerateOutfitFlow');
+      return;
+    }
+
+    void generateOutfit({
+      occasion: 'casual',
+      mustIncludeItemIds: selectedItems.map((item) => item.id),
+    });
+    navigation.navigate('OutfitLoading');
   };
 
   const shadowCard = t.shadows.level2;

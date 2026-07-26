@@ -7,8 +7,10 @@ export const isItemWeatherAppropriate = (item: ClothingItem, weather: WeatherDat
   const temp = weather.temperature;
   const condition = weather.condition.toLowerCase();
   const category = item.category.toLowerCase();
-  const tags = item.tags.map((t) => t.toLowerCase());
+  const subCategory = (item.subCategory ?? '').toLowerCase();
+  const tags = (item.tags ?? []).map((t) => t.toLowerCase());
   const season = item.season?.map((s) => s.toLowerCase()) || [];
+  const isShorts = category.includes('shorts') || subCategory.includes('shorts');
 
   // Temperature-based filtering
   if (temp >= 75) {
@@ -32,7 +34,7 @@ export const isItemWeatherAppropriate = (item: ClothingItem, weather: WeatherDat
     }
   } else if (temp >= 50) {
     // Cool weather - need some layers
-    if (category.includes('shorts') && !tags.some((t) => t.includes('long'))) {
+    if (isShorts && !tags.some((t) => t.includes('long'))) {
       return false;
     }
     if (season.includes('summer') && !season.includes('fall') && !season.includes('spring')) {
@@ -40,7 +42,7 @@ export const isItemWeatherAppropriate = (item: ClothingItem, weather: WeatherDat
     }
   } else {
     // Cold weather - prefer warm items
-    if (category.includes('shorts')) {
+    if (isShorts) {
       return false;
     }
     if (season.includes('summer') && !season.includes('fall') && !season.includes('winter')) {

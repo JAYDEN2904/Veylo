@@ -25,7 +25,9 @@ export interface OutfitGenerationContext {
   /** Flow step style chip ids: minimal, classic, ... */
   flowStyleIds?: string[];
   paletteId?: string;
-  /** Force this wardrobe item into the generated outfit (Insights "Style this"). */
+  /** Force wardrobe items into the generated outfit (Insights "Style this", Create Outfit). */
+  mustIncludeItemIds?: string[];
+  /** @deprecated Use mustIncludeItemIds — kept for single-item callers */
   mustIncludeItemId?: string;
 }
 
@@ -80,6 +82,38 @@ const FLOW_STYLE_TERMS: Record<string, string[]> = {
   elegant: ['elegant', 'refined', 'dressy'],
 };
 
+/** Normalize singular + plural anchor ids from generation context or store options. */
+export function resolveMustIncludeItemIds(
+  source:
+    | Pick<OutfitGenerationContext, 'mustIncludeItemIds' | 'mustIncludeItemId'>
+    | Record<string, unknown>
+): string[] {
+  const fromArray =
+    'mustIncludeItemIds' in source && Array.isArray(source.mustIncludeItemIds)
+      ? source.mustIncludeItemIds
+      : 'mustIncludeItemIds' in source &&
+          Array.isArray((source as Record<string, unknown>).mustIncludeItemIds)
+        ? ((source as Record<string, unknown>).mustIncludeItemIds as unknown[])
+        : null;
+
+  if (fromArray) {
+    return fromArray.filter((id): id is string => typeof id === 'string' && id.length > 0);
+  }
+
+  const singular =
+    'mustIncludeItemId' in source && typeof source.mustIncludeItemId === 'string'
+      ? source.mustIncludeItemId
+      : typeof (source as Record<string, unknown>).mustIncludeItemId === 'string'
+        ? ((source as Record<string, unknown>).mustIncludeItemId as string)
+        : undefined;
+
+  return singular ? [singular] : [];
+}
+
+function hasAnchoredItems(context: OutfitGenerationContext): boolean {
+  return resolveMustIncludeItemIds(context).length > 0;
+}
+
 const SLOT_ORDER = ['Tops', 'Bottoms', 'Shoes', 'Outerwear', 'Accessories'] as const;
 
 export function createOutfitId(): string {
@@ -94,12 +128,16 @@ export const getCurrentSeason = (): string => {
   return 'Winter';
 };
 
+/** Vision / DB store lowercase seasons; generator keys are capitalized. */
+function itemMatchesSeason(item: ClothingItem, season: string): boolean {
+  if (!item.season || item.season.length === 0) return true;
+  const target = season.trim().toLowerCase();
+  return item.season.some((entry) => entry.trim().toLowerCase() === target);
+}
+
 export const isSeasonallyAppropriate = (outfit: Outfit, season?: string): boolean => {
   const currentSeason = season || getCurrentSeason();
-  return outfit.items.every((item) => {
-    if (!item.season || item.season.length === 0) return true;
-    return item.season.includes(currentSeason);
-  });
+  return outfit.items.every((item) => itemMatchesSeason(item, currentSeason));
 };
 
 function buildStyleBoostTerms(context: OutfitGenerationContext): string[] {
@@ -124,21 +162,20 @@ function applyOccasionFilter(items: ClothingItem[], occasionKey: string): Clothi
 function filterPipeline(
   items: ClothingItem[],
   context: OutfitGenerationContext,
-  options: { skipOccasion: boolean }
+  options: { skipOccasion: boolean; skipWeather?: boolean; skipSeason?: boolean }
 ): ClothingItem[] {
   let pool = items.filter((item) => item.status === 'active');
   const currentSeason = context.season || getCurrentSeason();
 
-  if (context.weather) {
+  if (context.weather && !options.skipWeather) {
     pool = filterItemsByWeather(pool, context.weather);
   }
 
-  pool = pool.filter((item) => {
-    if (!item.season || item.season.length === 0) return true;
-    return item.season.includes(currentSeason);
-  });
+  if (!options.skipSeason) {
+    pool = pool.filter((item) => itemMatchesSeason(item, currentSeason));
+  }
 
-  if (context.occasionKey && !options.skipOccasion) {
+  if (context.occasionKey && !options.skipOccasion && !hasAnchoredItems(context)) {
     pool = applyOccasionFilter(pool, context.occasionKey);
   }
 
@@ -153,6 +190,14 @@ function filterPipeline(
   }
 
   return pool;
+}
+
+function poolCanFormOutfit(pool: ClothingItem[]): boolean {
+  const grouped = groupByCategory(pool);
+  const hasDress = (grouped['Dresses'] ?? []).length > 0;
+  const hasTop = (grouped['Tops'] ?? []).length > 0;
+  const hasBottom = (grouped['Bottoms'] ?? []).length > 0;
+  return hasDress || (hasTop && hasBottom);
 }
 
 function groupByCategory(items: ClothingItem[]): Record<string, ClothingItem[]> {
@@ -202,54 +247,74 @@ function buildScoreContext(context: OutfitGenerationContext): ScoreContext {
 function pickDressBasedOutfit(
   grouped: Record<string, ClothingItem[]>,
   scoreCtx: ScoreContext,
-  forced: ClothingItem | null
+  forcedItems: ClothingItem[]
 ): ClothingItem[] | null {
   const dresses = grouped['Dresses'] ?? [];
-  if (dresses.length === 0 && normalizeCategory(forced?.category ?? '') !== 'Dresses') {
+  const forcedDress = forcedItems.find((item) => normalizeCategory(item.category) === 'Dresses');
+  if (dresses.length === 0 && !forcedDress) {
     return null;
   }
 
   const picked: ClothingItem[] = [];
-  const forcedIsDress = forced != null && normalizeCategory(forced.category) === 'Dresses';
-  const dress = forcedIsDress ? forced : pickBestInCategory(dresses, scoreCtx, picked);
-  if (!dress) return null;
-  picked.push(dress);
+  const pickedIds = new Set<string>();
+
+  for (const forced of forcedItems) {
+    if (!pickedIds.has(forced.id)) {
+      picked.push(forced);
+      pickedIds.add(forced.id);
+    }
+  }
+
+  if (forcedDress) {
+    // Dress path with anchored dress — optional slots only
+  } else if (picked.length === 0) {
+    const dress = pickBestInCategory(dresses, scoreCtx, picked);
+    if (!dress) return null;
+    picked.push(dress);
+    pickedIds.add(dress.id);
+  }
 
   const optionalSlots = ['Shoes', 'Outerwear', 'Accessories'] as const;
   for (const slot of optionalSlots) {
-    if (forced && !forcedIsDress && normalizeCategory(forced.category) === slot) {
-      picked.push(forced);
-      continue;
-    }
-    const list = (grouped[slot] ?? []).filter((item) => item.id !== forced?.id);
+    const hasInSlot = picked.some((item) => normalizeCategory(item.category) === slot);
+    if (hasInSlot) continue;
+
+    const list = (grouped[slot] ?? []).filter((item) => !pickedIds.has(item.id));
     const next = pickBestInCategory(list, scoreCtx, picked);
-    if (next) picked.push(next);
+    if (next) {
+      picked.push(next);
+      pickedIds.add(next.id);
+    }
   }
 
-  return picked;
+  return picked.length > 0 ? picked : null;
 }
 
 function pickStandardOutfit(
   grouped: Record<string, ClothingItem[]>,
   scoreCtx: ScoreContext,
-  forced: ClothingItem | null
+  forcedItems: ClothingItem[]
 ): ClothingItem[] | null {
   const picked: ClothingItem[] = [];
-  const forcedCat = forced ? normalizeCategory(forced.category) : null;
+  const pickedIds = new Set<string>();
 
-  for (const slot of SLOT_ORDER) {
-    if (forced && forcedCat === slot) {
+  for (const forced of forcedItems) {
+    if (!pickedIds.has(forced.id)) {
       picked.push(forced);
-      continue;
+      pickedIds.add(forced.id);
     }
-    const list = (grouped[slot] ?? []).filter((item) => item.id !== forced?.id);
-    const next = pickBestInCategory(list, scoreCtx, picked);
-    if (next) picked.push(next);
   }
 
-  // Forced item outside core slots (e.g. odd category) — append if missing
-  if (forced && !picked.some((item) => item.id === forced.id)) {
-    picked.push(forced);
+  for (const slot of SLOT_ORDER) {
+    const hasInSlot = picked.some((item) => normalizeCategory(item.category) === slot);
+    if (hasInSlot) continue;
+
+    const list = (grouped[slot] ?? []).filter((item) => !pickedIds.has(item.id));
+    const next = pickBestInCategory(list, scoreCtx, picked);
+    if (next) {
+      picked.push(next);
+      pickedIds.add(next.id);
+    }
   }
 
   const cats = new Set(picked.map((i) => normalizeCategory(i.category)));
@@ -269,9 +334,10 @@ function meetsMinimumCoverage(items: ClothingItem[]): boolean {
   return cats.has('Tops') && cats.has('Bottoms');
 }
 
-function resolveForcedItem(pool: ClothingItem[], mustIncludeItemId?: string): ClothingItem | null {
-  if (!mustIncludeItemId) return null;
-  return pool.find((item) => item.id === mustIncludeItemId) ?? null;
+function resolveForcedItems(pool: ClothingItem[], anchorIds: string[]): ClothingItem[] {
+  if (anchorIds.length === 0) return [];
+  const byId = new Map(pool.map((item) => [item.id, item] as const));
+  return anchorIds.map((id) => byId.get(id)).filter((item): item is ClothingItem => item != null);
 }
 
 function tryBuildOutfit(
@@ -281,23 +347,25 @@ function tryBuildOutfit(
   const grouped = groupByCategory(pool);
   const scoreCtx = buildScoreContext(context);
   const occasionKey = context.occasionKey ?? 'Casual';
-  const forced = resolveForcedItem(pool, context.mustIncludeItemId);
-  const forcedIsDress = forced != null && normalizeCategory(forced.category) === 'Dresses';
+  const anchorIds = resolveMustIncludeItemIds(context);
+  const forcedItems = resolveForcedItems(pool, anchorIds);
+  const forcedIsDress = forcedItems.some((item) => normalizeCategory(item.category) === 'Dresses');
+  const useDressPath = forcedIsDress || (forcedItems.length === 0 && prefersDressPath(occasionKey));
 
-  if (forcedIsDress || prefersDressPath(occasionKey)) {
-    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, forced);
+  if (useDressPath) {
+    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, forcedItems);
     if (dressOutfit && meetsMinimumCoverage(dressOutfit)) {
       return dressOutfit;
     }
   }
 
-  const standard = pickStandardOutfit(grouped, scoreCtx, forced);
+  const standard = pickStandardOutfit(grouped, scoreCtx, forcedItems);
   if (standard && meetsMinimumCoverage(standard)) {
     return standard;
   }
 
   if ((grouped['Dresses'] ?? []).length > 0 || forcedIsDress) {
-    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, forced);
+    const dressOutfit = pickDressBasedOutfit(grouped, scoreCtx, forcedItems);
     if (dressOutfit && meetsMinimumCoverage(dressOutfit)) return dressOutfit;
   }
 
@@ -325,31 +393,47 @@ export function generateContextAwareOutfit(
   }
 
   const normalized = withNormalizedCategories(active);
+  const anchorIds = resolveMustIncludeItemIds(context);
 
-  if (context.mustIncludeItemId) {
-    const mustExist = normalized.find((item) => item.id === context.mustIncludeItemId);
-    if (!mustExist) {
+  if (anchorIds.length > 0) {
+    const missing = anchorIds.filter((id) => !normalized.some((item) => item.id === id));
+    if (missing.length > 0) {
       return failure(
         'filters_too_strict',
-        'That item is no longer in your active wardrobe. Pull to refresh and try again.'
+        'Some selected items are no longer in your active wardrobe. Pull to refresh and try again.'
       );
     }
   }
 
-  let pool = filterPipeline(normalized, context, { skipOccasion: false });
+  // Progressively relax filters so a top+bottom wardrobe still produces an outfit.
+  const filterPasses: Array<{
+    skipOccasion: boolean;
+    skipWeather?: boolean;
+    skipSeason?: boolean;
+  }> = [
+    { skipOccasion: false },
+    { skipOccasion: true },
+    { skipOccasion: true, skipWeather: true },
+    { skipOccasion: true, skipWeather: true, skipSeason: true },
+  ];
+
+  let pool = filterPipeline(normalized, context, filterPasses[0]);
   let usedRelaxed = false;
 
-  if (pool.length === 0) {
-    pool = filterPipeline(normalized, context, { skipOccasion: true });
+  for (let i = 1; i < filterPasses.length; i++) {
+    if (pool.length > 0 && poolCanFormOutfit(pool)) break;
+    pool = filterPipeline(normalized, context, filterPasses[i]);
     usedRelaxed = true;
   }
 
-  // Always keep the anchored item in the pool even when filters would drop it.
-  if (context.mustIncludeItemId) {
-    const forced = normalized.find((item) => item.id === context.mustIncludeItemId);
-    if (forced && !pool.some((item) => item.id === forced.id)) {
-      pool = [...pool, forced];
-      usedRelaxed = true;
+  // Always keep anchored items in the pool even when filters would drop them.
+  if (anchorIds.length > 0) {
+    for (const anchorId of anchorIds) {
+      const forced = normalized.find((item) => item.id === anchorId);
+      if (forced && !pool.some((item) => item.id === forced.id)) {
+        pool = [...pool, forced];
+        usedRelaxed = true;
+      }
     }
   }
 
@@ -362,10 +446,21 @@ export function generateContextAwareOutfit(
 
   let outfitItems = tryBuildOutfit(pool, context);
 
-  if (!outfitItems && !usedRelaxed && context.occasionKey) {
-    pool = filterPipeline(normalized, context, { skipOccasion: true });
-    usedRelaxed = true;
-    outfitItems = tryBuildOutfit(pool, context);
+  if (!outfitItems) {
+    for (let i = 1; i < filterPasses.length; i++) {
+      pool = filterPipeline(normalized, context, filterPasses[i]);
+      usedRelaxed = true;
+      if (anchorIds.length > 0) {
+        for (const anchorId of anchorIds) {
+          const forced = normalized.find((item) => item.id === anchorId);
+          if (forced && !pool.some((item) => item.id === forced.id)) {
+            pool = [...pool, forced];
+          }
+        }
+      }
+      outfitItems = tryBuildOutfit(pool, context);
+      if (outfitItems) break;
+    }
   }
 
   if (!outfitItems || outfitItems.length === 0) {
@@ -421,7 +516,11 @@ export function generateRankedOutfits(
   for (let i = 0; i < max; i++) {
     const available = items.filter((item) => !usedItemIds.has(item.id));
     const result = generateContextAwareOutfit(available, context);
-    if (!result.ok) break;
+    if (!result.ok) {
+      // Preserve the first failure so the UI can show a specific reason.
+      if (results.length === 0) return [result];
+      break;
+    }
 
     for (const item of result.outfit.items) {
       usedItemIds.add(item.id);

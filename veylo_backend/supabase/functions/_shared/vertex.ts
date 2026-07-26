@@ -123,20 +123,49 @@ export function fromBase64(b64: string): Uint8Array {
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }
 
-/** Download image bytes from a signed URL and return base64. */
-export async function fetchImageAsBase64(url: string): Promise<string> {
+export interface FetchedImage {
+  base64: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
+function mimeFromContentType(contentType: string | null): string {
+  if (!contentType) return 'image/jpeg';
+  const mime = contentType.split(';')[0]?.trim().toLowerCase();
+  if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/webp') {
+    return mime;
+  }
+  return 'image/jpeg';
+}
+
+/** Download image bytes from a signed URL (base64 + mime). */
+export async function fetchImage(url: string): Promise<FetchedImage> {
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Could not download image: ${res.status}`);
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
-  return toBase64(bytes);
+  return {
+    bytes,
+    base64: toBase64(bytes),
+    mimeType: mimeFromContentType(res.headers.get('content-type')),
+  };
+}
+
+/** Download image bytes from a signed URL and return base64. */
+export async function fetchImageAsBase64(url: string): Promise<string> {
+  const image = await fetchImage(url);
+  return image.base64;
+}
+
+function publisherModelUrl(model: string, method: 'predict' | 'generateContent'): string {
+  const project = vertexProjectId();
+  const location = vertexLocation();
+  return `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:${method}`;
 }
 
 function predictUrl(model: string): string {
-  const project = vertexProjectId();
-  const location = vertexLocation();
-  return `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:predict`;
+  return publisherModelUrl(model, 'predict');
 }
 
 /**
@@ -181,4 +210,77 @@ export function firstPredictionBytes(predictions: VertexPrediction[]): {
   }
   const mimeType = typeof first.mimeType === 'string' ? first.mimeType : 'image/png';
   return { bytes: fromBase64(encoded), mimeType };
+}
+
+export interface VertexImageEditRequest {
+  prompt: string;
+  imageBase64: string;
+  mimeType?: string;
+  aspectRatio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9';
+}
+
+/**
+ * Gemini image models via `:generateContent` (replacement for retired Imagen capability).
+ */
+export async function vertexGenerateContentImage(
+  model: string,
+  request: VertexImageEditRequest
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const token = await fetchAccessToken();
+  const mimeType = request.mimeType ?? 'image/jpeg';
+  const body = {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: request.prompt },
+          {
+            inlineData: {
+              mimeType,
+              data: request.imageBase64,
+            },
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      ...(request.aspectRatio ? { imageConfig: { aspectRatio: request.aspectRatio } } : {}),
+    },
+  };
+
+  const res = await fetch(publisherModelUrl(model, 'generateContent'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Vertex generateContent ${model} ${res.status}: ${await res.text()}`);
+  }
+
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) {
+    throw new Error(`Vertex generateContent ${model} returned no content parts`);
+  }
+
+  for (const part of parts) {
+    const inline = part?.inlineData ?? part?.inline_data;
+    const encoded = inline?.data;
+    if (typeof encoded === 'string' && encoded.length > 0) {
+      const outMime =
+        typeof inline?.mimeType === 'string'
+          ? inline.mimeType
+          : typeof inline?.mime_type === 'string'
+            ? inline.mime_type
+            : 'image/png';
+      return { bytes: fromBase64(encoded), mimeType: outMime };
+    }
+  }
+
+  throw new Error(`Vertex generateContent ${model} returned no image data`);
 }
