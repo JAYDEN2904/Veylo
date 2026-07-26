@@ -27,9 +27,20 @@ export function vertexLocation(): string {
   return Deno.env.get('GCP_LOCATION') ?? 'us-central1';
 }
 
+/** Encode bytes to base64 without spreading the whole buffer (large images crash Deno). */
+export function toBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
 function base64UrlEncode(data: Uint8Array | string): string {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-  const b64 = btoa(String.fromCharCode(...bytes));
+  const b64 = toBase64(bytes);
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
@@ -105,10 +116,6 @@ async function fetchAccessToken(): Promise<string> {
     expiresAtMs: now + expiresIn * 1000,
   };
   return cachedToken.accessToken;
-}
-
-export function toBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
 }
 
 export function fromBase64(b64: string): Uint8Array {

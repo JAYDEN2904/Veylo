@@ -228,6 +228,51 @@ export class FunctionsCallError extends Error {
   }
 }
 
+async function readFunctionsErrorDetail(error: {
+  message?: string;
+  context?: unknown;
+}): Promise<{ message: string; status?: number }> {
+  let message = error.message || 'Edge Function failed';
+  let status: number | undefined;
+
+  const context = error.context;
+  if (context && typeof context === 'object') {
+    const maybeResponse = context as {
+      status?: number;
+      json?: () => Promise<unknown>;
+      clone?: () => { json: () => Promise<unknown> };
+    };
+    if (typeof maybeResponse.status === 'number') {
+      status = maybeResponse.status;
+    }
+    try {
+      const body =
+        typeof maybeResponse.clone === 'function'
+          ? await maybeResponse.clone().json()
+          : typeof maybeResponse.json === 'function'
+            ? await maybeResponse.json()
+            : null;
+      if (body && typeof body === 'object') {
+        const record = body as { error?: unknown; detail?: unknown; message?: unknown };
+        const primary =
+          typeof record.error === 'string'
+            ? record.error
+            : typeof record.message === 'string'
+              ? record.message
+              : null;
+        const detail = typeof record.detail === 'string' ? record.detail : null;
+        if (primary && detail) message = `${primary}: ${detail}`;
+        else if (primary) message = primary;
+        else if (detail) message = detail;
+      }
+    } catch {
+      // Response body may already be consumed or non-JSON — keep default message.
+    }
+  }
+
+  return { message, status };
+}
+
 async function invoke<TReq, TRes>(fnName: string, body: TReq): Promise<TRes> {
   const supabase = getSupabase();
   if (!supabase) {
@@ -237,8 +282,9 @@ async function invoke<TReq, TRes>(fnName: string, body: TReq): Promise<TRes> {
     body: body as unknown as Record<string, unknown>,
   });
   if (error) {
-    const status = (error as { context?: { status?: number } }).context?.status;
-    const message = error.message || `Edge Function ${fnName} failed`;
+    const { message, status } = await readFunctionsErrorDetail(
+      error as { message?: string; context?: unknown }
+    );
     if (status && status !== 401) {
       console.error(`[functions:${fnName}]`, { status, message });
     }

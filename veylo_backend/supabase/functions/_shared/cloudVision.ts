@@ -2,7 +2,7 @@
  * Google Cloud Vision API garment tagging.
  */
 
-import { fetchImageAsBase64 } from './vertex.ts';
+import { fetchImageAsBase64, toBase64 } from './vertex.ts';
 
 export interface HslColor {
   h: number;
@@ -36,7 +36,7 @@ function requireEnv(name: string): string {
 
 function base64UrlEncode(data: Uint8Array | string): string {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-  const b64 = btoa(String.fromCharCode(...bytes));
+  const b64 = toBase64(bytes);
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
