@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Screen, Typography, Button, StyledView, Card } from '../../components/common';
+import { Screen, Typography, PrimaryButton, StyledView, Card } from '../../components/common';
+import { PressableScale } from '../../components/PressableScale';
 import { useThemeStore } from '../../store/useThemeStore';
+import { Fonts } from '../../theme/fonts';
 import { Ionicons } from '@expo/vector-icons';
 import {
   clothingItemUpdatesToPatch,
@@ -162,7 +164,9 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
       <Screen className="bg-background">
         <StyledView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
           <ActivityIndicator size="large" color={currentTheme.colors.primary} />
-          <Typography className="text-gray-500 mt-4">Loading tags...</Typography>
+          <Typography className="mt-4" style={{ color: currentTheme.colors.textSecondary }}>
+            Loading tags...
+          </Typography>
         </StyledView>
       </Screen>
     );
@@ -222,10 +226,10 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 flexDirection: 'row',
                 alignItems: 'flex-start',
                 gap: 10,
-                backgroundColor: '#FFF7ED',
+                backgroundColor: `${currentTheme.colors.warning}1F`,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: '#FED7AA',
+                borderColor: `${currentTheme.colors.warning}55`,
                 padding: 14,
                 marginBottom: 20,
               }}
@@ -233,14 +237,20 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
               <Ionicons
                 name="help-circle-outline"
                 size={20}
-                color="#EA580C"
+                color={currentTheme.colors.warning}
                 style={{ marginTop: 1 }}
               />
               <StyledView style={{ flex: 1 }}>
-                <Typography className="text-sm font-semibold" style={{ color: '#9A3412' }}>
+                <Typography
+                  className="text-sm font-semibold"
+                  style={{ color: currentTheme.colors.text }}
+                >
                   We're not sure about this category
                 </Typography>
-                <Typography className="text-xs mt-1" style={{ color: '#C2410C' }}>
+                <Typography
+                  className="text-xs mt-1"
+                  style={{ color: currentTheme.colors.textSecondary }}
+                >
                   Our AI wasn't fully confident. Please pick the correct category below before
                   saving.
                 </Typography>
@@ -249,20 +259,25 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
           </Animated.View>
         )}
 
-        <Animated.View entering={FadeInDown.duration(400).delay(100)}>
+        <Animated.View entering={FadeInDown.duration(400).delay(40)}>
           <StyledView style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-            <Typography className="text-sm font-medium text-gray-700">Category</Typography>
+            <Typography className="text-sm font-medium" style={{ color: currentTheme.colors.text }}>
+              Category
+            </Typography>
             {isLowConfidence && !categoryConfirmed && (
               <StyledView
                 style={{
                   marginLeft: 8,
-                  backgroundColor: '#FED7AA',
+                  backgroundColor: `${currentTheme.colors.warning}1F`,
                   borderRadius: 8,
                   paddingHorizontal: 6,
                   paddingVertical: 2,
                 }}
               >
-                <Typography className="text-xs font-semibold" style={{ color: '#9A3412' }}>
+                <Typography
+                  className="text-xs font-semibold"
+                  style={{ color: currentTheme.colors.warning }}
+                >
                   Tap to confirm
                 </Typography>
               </StyledView>
@@ -275,8 +290,9 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
           >
             <StyledView style={{ flexDirection: 'row', gap: 12 }}>
               {CATEGORIES.map((cat) => (
-                <TouchableOpacity
+                <PressableScale
                   key={cat}
+                  haptic="selection"
                   onPress={() => handleCategorySelect(cat)}
                   style={{
                     paddingHorizontal: 20,
@@ -291,19 +307,25 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 >
                   <Typography
                     className="text-sm font-semibold"
-                    style={{ color: category === cat ? '#FFF' : currentTheme.colors.text }}
+                    style={{
+                      color:
+                        category === cat ? currentTheme.colors.onPrimary : currentTheme.colors.text,
+                    }}
                   >
                     {cat}
                   </Typography>
-                </TouchableOpacity>
+                </PressableScale>
               ))}
             </StyledView>
           </ScrollView>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(400).delay(200)}>
+        <Animated.View entering={FadeInDown.duration(400).delay(80)}>
           <StyledView style={{ marginBottom: 24 }}>
-            <Typography className="text-sm font-medium text-gray-700 mb-2">
+            <Typography
+              className="text-sm font-medium mb-2"
+              style={{ color: currentTheme.colors.text }}
+            >
               Brand (Optional)
             </Typography>
             <TextInput
@@ -319,15 +341,19 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 borderWidth: 1,
                 borderColor: currentTheme.colors.border,
                 fontSize: 16,
+                fontFamily: Fonts.bodyRegular,
                 color: currentTheme.colors.text,
               }}
             />
           </StyledView>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(400).delay(250)}>
+        <Animated.View entering={FadeInDown.duration(400).delay(100)}>
           <StyledView style={{ marginBottom: 24 }}>
-            <Typography className="text-sm font-medium text-gray-700 mb-2">
+            <Typography
+              className="text-sm font-medium mb-2"
+              style={{ color: currentTheme.colors.text }}
+            >
               Material (optional)
             </Typography>
             <TextInput
@@ -343,20 +369,27 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 borderWidth: 1,
                 borderColor: currentTheme.colors.border,
                 fontSize: 16,
+                fontFamily: Fonts.bodyRegular,
                 color: currentTheme.colors.text,
               }}
             />
           </StyledView>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(400).delay(275)}>
-          <Typography className="text-sm font-medium text-gray-700 mb-3">Colours</Typography>
+        <Animated.View entering={FadeInDown.duration(400).delay(120)}>
+          <Typography
+            className="text-sm font-medium mb-3"
+            style={{ color: currentTheme.colors.text }}
+          >
+            Colours
+          </Typography>
           <StyledView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
             {COLOR_OPTIONS.map((color) => {
               const isSelected = selectedColors.includes(color);
               return (
-                <TouchableOpacity
+                <PressableScale
                   key={color}
+                  haptic="selection"
                   onPress={() => toggleColor(color)}
                   style={{
                     paddingHorizontal: 16,
@@ -373,24 +406,32 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 >
                   <Typography
                     className="text-sm font-medium"
-                    style={{ color: isSelected ? '#FFF' : currentTheme.colors.text }}
+                    style={{
+                      color: isSelected ? currentTheme.colors.onPrimary : currentTheme.colors.text,
+                    }}
                   >
                     {color}
                   </Typography>
-                </TouchableOpacity>
+                </PressableScale>
               );
             })}
           </StyledView>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(400).delay(300)}>
-          <Typography className="text-sm font-medium text-gray-700 mb-3">Detected Tags</Typography>
+        <Animated.View entering={FadeInDown.duration(400).delay(140)}>
+          <Typography
+            className="text-sm font-medium mb-3"
+            style={{ color: currentTheme.colors.text }}
+          >
+            Detected Tags
+          </Typography>
           <StyledView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
             {detectedTags.map((tag) => {
               const isSelected = selectedTags.includes(tag);
               return (
-                <TouchableOpacity
+                <PressableScale
                   key={tag}
+                  haptic="selection"
                   onPress={() => toggleTag(tag)}
                   style={{
                     paddingHorizontal: 16,
@@ -407,24 +448,32 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 >
                   <Typography
                     className="text-sm font-medium"
-                    style={{ color: isSelected ? '#FFF' : currentTheme.colors.text }}
+                    style={{
+                      color: isSelected ? currentTheme.colors.onPrimary : currentTheme.colors.text,
+                    }}
                   >
                     {tag}
                   </Typography>
-                </TouchableOpacity>
+                </PressableScale>
               );
             })}
           </StyledView>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(400).delay(400)}>
-          <Typography className="text-sm font-medium text-gray-700 mb-3">Suggested Tags</Typography>
+        <Animated.View entering={FadeInDown.duration(400).delay(180)}>
+          <Typography
+            className="text-sm font-medium mb-3"
+            style={{ color: currentTheme.colors.text }}
+          >
+            Suggested Tags
+          </Typography>
           <StyledView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
             {SUGGESTED_TAGS.map((tag) => {
               const isSelected = selectedTags.includes(tag);
               return (
-                <TouchableOpacity
+                <PressableScale
                   key={tag}
+                  haptic="selection"
                   onPress={() => toggleTag(tag)}
                   style={{
                     paddingHorizontal: 16,
@@ -441,18 +490,25 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 >
                   <Typography
                     className="text-sm font-medium"
-                    style={{ color: isSelected ? '#FFF' : currentTheme.colors.text }}
+                    style={{
+                      color: isSelected ? currentTheme.colors.onPrimary : currentTheme.colors.text,
+                    }}
                   >
                     {tag}
                   </Typography>
-                </TouchableOpacity>
+                </PressableScale>
               );
             })}
           </StyledView>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(400).delay(500)}>
-          <Typography className="text-sm font-medium text-gray-700 mb-3">Add Custom Tag</Typography>
+        <Animated.View entering={FadeInDown.duration(400).delay(220)}>
+          <Typography
+            className="text-sm font-medium mb-3"
+            style={{ color: currentTheme.colors.text }}
+          >
+            Add Custom Tag
+          </Typography>
           <StyledView style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
             <TextInput
               value={customTag}
@@ -468,11 +524,13 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 borderWidth: 1,
                 borderColor: currentTheme.colors.border,
                 fontSize: 16,
+                fontFamily: Fonts.bodyRegular,
                 color: currentTheme.colors.text,
               }}
               onSubmitEditing={addCustomTag}
             />
-            <TouchableOpacity
+            <PressableScale
+              haptic="selection"
               onPress={addCustomTag}
               style={{
                 width: 48,
@@ -483,17 +541,17 @@ export const TagReviewScreen = ({ navigation, route }: any) => {
                 alignItems: 'center',
               }}
             >
-              <Ionicons name="add" size={24} color="#FFF" />
-            </TouchableOpacity>
+              <Ionicons name="add" size={24} color={currentTheme.colors.onPrimary} />
+            </PressableScale>
           </StyledView>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(400).delay(600)}>
-          <Button
+        <Animated.View entering={FadeInDown.duration(400).delay(240)}>
+          <PrimaryButton
             title={saving ? 'Saving...' : 'Save Item'}
             onPress={handleSave}
+            loading={saving}
             disabled={!category || saving || (isLowConfidence && !categoryConfirmed)}
-            className="shadow-lg shadow-indigo-500/20"
           />
           {isLowConfidence && !categoryConfirmed && (
             <Typography

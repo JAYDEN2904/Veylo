@@ -9,6 +9,7 @@ import { LoginScreen } from '../screens/auth/LoginScreen';
 import { SignupScreen } from '../screens/auth/SignupScreen';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
 import { EmailVerificationScreen } from '../screens/auth/EmailVerificationScreen';
+import { EmailVerifiedSuccessScreen } from '../screens/auth/EmailVerifiedSuccessScreen';
 import { PermissionsRequestScreen } from '../screens/auth/PermissionsRequestScreen';
 import { StyleQuizScreen } from '../screens/auth/StyleQuizScreen';
 import { StyleDnaRevealScreen } from '../screens/auth/StyleDnaRevealScreen';
@@ -26,6 +27,7 @@ export const AuthNavigator = () => {
       <Stack.Screen name="Signup" component={SignupScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <Stack.Screen name="EmailVerification" component={EmailVerificationScreen} />
+      <Stack.Screen name="EmailVerifiedSuccess" component={EmailVerifiedSuccessScreen} />
       <Stack.Screen name="Permissions" component={PermissionsRequestScreen} />
     </Stack.Navigator>
   );

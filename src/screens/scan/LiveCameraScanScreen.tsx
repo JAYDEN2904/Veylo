@@ -11,7 +11,6 @@ import {
   MAIN_TAB_BAR_HIDDEN_STYLE,
 } from '../../navigation/tabBarStyles';
 import { getBottomTabNavigatorNavigation } from '../../navigation/screenProps';
-import { theme } from '../../theme';
 
 /** Square crop helps keep garments centered like the old viewfinder. */
 const GARMENT_ASPECT: [number, number] = [1, 1];
@@ -165,13 +164,13 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
               width: 96,
               height: 96,
               borderRadius: 48,
-              backgroundColor: theme.colors.secondary + '33',
+              backgroundColor: currentTheme.colors.secondary + '33',
               justifyContent: 'center',
               alignItems: 'center',
               marginBottom: 20,
             }}
           >
-            <Ionicons name="shirt-outline" size={44} color={theme.colors.primary} />
+            <Ionicons name="shirt-outline" size={44} color={currentTheme.colors.primary} />
           </View>
           <Typography
             variant="header"
@@ -222,7 +221,7 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
               <Ionicons
                 name={tip.icon}
                 size={14}
-                color={theme.colors.primary}
+                color={currentTheme.colors.primary}
                 style={{ marginRight: 6 }}
               />
               <Typography

@@ -1,11 +1,5 @@
-import { Platform } from 'react-native';
 import type { AppTheme } from './types';
-
-const fontFamily = Platform.select({
-  ios: { bold: 'System', regular: 'System' },
-  android: { bold: 'sans-serif-medium', regular: 'sans-serif' },
-  default: { bold: 'System', regular: 'System' },
-});
+import { Fonts } from './fonts';
 
 /**
  * Dark mode — same shape as light `theme` (see theme/index.ts).
@@ -50,12 +44,12 @@ export const darkTheme: AppTheme = {
     full: 9999,
   },
   typography: {
-    header: { fontFamily: fontFamily?.bold, fontWeight: '700' },
-    body: { fontFamily: fontFamily?.regular, fontWeight: '400' },
-    h1: { fontSize: 32, fontWeight: '700' },
-    h2: { fontSize: 24, fontWeight: '700' },
-    h3: { fontSize: 20, fontWeight: '600' },
-    caption: { fontSize: 14, fontWeight: '400' },
+    header: { fontFamily: Fonts.displayBold, fontWeight: '700' },
+    body: { fontFamily: Fonts.bodyRegular, fontWeight: '400' },
+    h1: { fontSize: 32, fontWeight: '700', fontFamily: Fonts.displayBold },
+    h2: { fontSize: 24, fontWeight: '700', fontFamily: Fonts.displayBold },
+    h3: { fontSize: 20, fontWeight: '600', fontFamily: Fonts.bodySemiBold },
+    caption: { fontSize: 14, fontWeight: '400', fontFamily: Fonts.bodyRegular },
     scale: {
       xs: 11,
       sm: 13,
@@ -91,5 +85,8 @@ export const darkTheme: AppTheme = {
       elevation: 12,
     },
   },
-  fonts: fontFamily,
+  fonts: {
+    bold: Fonts.displayBold,
+    regular: Fonts.bodyRegular,
+  },
 };

@@ -68,9 +68,10 @@ export const VirtualTryOnScreen = ({ navigation, route }: any) => {
   // Check if user has an avatar
   const hasAvatar = !!user?.avatarUrl;
 
-  // Get outfit from params or use generated outfit
-  const outfitId = route.params?.outfitId;
-  const outfit = outfitId ? outfits.find((o) => o.id === outfitId) : generatedOutfit;
+  // Library outfit by id, else the in-memory generated look (OutfitResult passes generated id).
+  const outfitId = route.params?.outfitId as string | undefined;
+  const fromLibrary = outfitId ? outfits.find((o) => o.id === outfitId) : undefined;
+  const outfit = fromLibrary ?? generatedOutfit ?? null;
 
   // Animation for the scanning effect
   const scanLine = useSharedValue(0);
@@ -142,13 +143,31 @@ export const VirtualTryOnScreen = ({ navigation, route }: any) => {
   };
 
   const handleStartTryOn = async () => {
-    if ((!selectedPhoto && !useAvatar) || !outfit?.items) return;
+    if (!selectedPhoto && !(useAvatar && hasAvatar)) {
+      Alert.alert(
+        'Photo needed',
+        'Take or choose a full-body photo, or select your avatar, before generating a try-on.'
+      );
+      return;
+    }
+
+    if (!outfit?.items?.length) {
+      Alert.alert(
+        'Outfit missing',
+        'This look could not be loaded. Go back and open try-on again from the outfit result.'
+      );
+      return;
+    }
 
     setIsLoading(true);
-    startSession(selectedPhoto, outfit.items, outfit, useAvatar);
-
-    // Navigate to processing screen
-    navigation.navigate('TryOnProcessing');
+    try {
+      startSession(selectedPhoto, outfit.items, outfit, useAvatar && hasAvatar);
+      navigation.navigate('TryOnProcessing');
+    } catch (err) {
+      if (__DEV__) console.error('[VirtualTryOn] startSession', err);
+      Alert.alert('Error', 'Could not start virtual try-on. Please try again.');
+      setIsLoading(false);
+    }
   };
 
   // Auto-select avatar if available and no photo selected

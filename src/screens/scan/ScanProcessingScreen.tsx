@@ -8,7 +8,7 @@ import Animated, {
   cancelAnimation,
 } from 'react-native-reanimated';
 import { Screen, Typography, StyledView } from '../../components/common';
-import { theme } from '../../theme';
+import { useThemeStore } from '../../store/useThemeStore';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '../../store/useAuthStore';
 import { uploadClothingItemPhoto } from '../../services/imageUpload';
@@ -27,6 +27,7 @@ const PROCESSING_STEPS = [
 type RouteProps = { imageUri?: string };
 
 export const ScanProcessingScreen = ({ navigation, route }: any) => {
+  const { currentTheme } = useThemeStore();
   const params: RouteProps = route?.params ?? {};
   const user = useAuthStore((s) => s.user);
   const hasRun = useRef(false);
@@ -96,6 +97,7 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
       const tagResult = await functionsClient.tagItem({ item_id: row.id });
 
       setProgress(95, 3);
+      await wait(200);
       setProgress(100, 4);
       await wait(200);
       navigation.replace('TagReview', {
@@ -122,7 +124,7 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
   return (
     <Screen className="bg-background">
       <LinearGradient
-        colors={[theme.colors.primary, '#2A2D31']}
+        colors={[currentTheme.colors.primary, '#2A2D31']}
         style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}
       >
         <StyledView style={{ alignItems: 'center', width: '100%' }}>
@@ -144,7 +146,7 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
                   height: 200,
                   borderRadius: 100,
                   borderWidth: 3,
-                  borderColor: theme.colors.secondary,
+                  borderColor: currentTheme.colors.secondary,
                   borderTopColor: 'transparent',
                 },
                 animatedRingStyle,
@@ -152,7 +154,7 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
             />
             <Animated.View style={animatedPulseStyle}>
               <LinearGradient
-                colors={[theme.colors.secondary, '#E8D89A']}
+                colors={[currentTheme.colors.secondary, '#E8D89A']}
                 style={{
                   width: 120,
                   height: 120,
@@ -163,7 +165,7 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
               >
                 <Typography
                   className="text-4xl"
-                  style={{ color: theme.colors.primary, fontWeight: '700' }}
+                  style={{ color: currentTheme.colors.primary, fontWeight: '700' }}
                 >
                   AI
                 </Typography>
@@ -193,7 +195,7 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
               style={[
                 {
                   height: '100%',
-                  backgroundColor: theme.colors.secondary,
+                  backgroundColor: currentTheme.colors.secondary,
                   borderRadius: 4,
                 },
                 progressStyle,

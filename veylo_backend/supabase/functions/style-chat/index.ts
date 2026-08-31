@@ -5,8 +5,14 @@ import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 import { chatCompletionJson } from '../_shared/gpt.ts';
-import { enforceRateLimit } from '../_shared/rateLimit.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 import { logUsage } from '../_shared/usage.ts';
+import {
+  fenceUntrustedData,
+  PROMPT_INJECTION_SYSTEM_PREAMBLE,
+  sanitizeStringList,
+  sanitizeText,
+} from '../_shared/promptSafety.ts';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -30,6 +36,9 @@ const REPLY_SCHEMA = {
   },
 } as const;
 
+const MAX_TURNS = 8;
+const MAX_TURN_CHARS = 1000;
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -39,18 +48,12 @@ Deno.serve(async (req) => {
   const { user, userClient } = ctx;
 
   const service = getServiceClient();
-  const rl = await enforceRateLimit(service, `chat:${user.id}`, {
-    windowSeconds: 60,
-    maxRequests: 20,
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'style-chat',
+    userId: user.id,
+    tier: 'paid_chat',
   });
-  if (!rl.ok) {
-    return jsonResponse(
-      { error: 'Rate limited', retry_after: rl.retryAfterSeconds },
-      {
-        status: 429,
-      }
-    );
-  }
+  if (blocked) return blocked;
 
   let payload: Payload;
   try {
@@ -59,9 +62,17 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const turns = payload.messages ?? [];
+  const turns = (payload.messages ?? [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+    .slice(-MAX_TURNS)
+    .map((m) => ({
+      role: m.role,
+      content: sanitizeText(m.content, MAX_TURN_CHARS),
+    }))
+    .filter((m) => m.content.length > 0);
+
   const lastUser = [...turns].reverse().find((m) => m.role === 'user');
-  if (!lastUser?.content?.trim()) {
+  if (!lastUser?.content) {
     return jsonResponse({ error: 'messages must include a user turn' }, { status: 400 });
   }
 
@@ -78,21 +89,40 @@ Deno.serve(async (req) => {
       .limit(80),
   ]);
 
-  const wardrobeSummary = `Preferences: ${JSON.stringify(profile ?? {})}\nItems sample: ${JSON.stringify(items ?? [])}`;
+  const safeProfile = {
+    preferences: profile?.preferences ?? null,
+    learned_preferences: profile?.learned_preferences ?? null,
+  };
+  const safeItems = (items ?? []).map(
+    (item: { category?: string; tags?: string[] | null; colors?: string[] | null }) => ({
+      category: sanitizeText(item.category, 40),
+      tags: sanitizeStringList(item.tags, { maxItems: 8, maxItemLen: 32 }),
+      colors: sanitizeStringList(item.colors, { maxItems: 5, maxItemLen: 24 }),
+    })
+  );
 
-  const transcript = turns
-    .slice(-8)
-    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
-    .join('\n');
+  const wardrobeBlock = fenceUntrustedData('wardrobe_summary', {
+    preferences: safeProfile,
+    items_sample: safeItems,
+  });
+
+  const transcript = turns.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
   try {
     const out = await chatCompletionJson<{ reply: string }>(
       [
         {
           role: 'system',
-          content: `You are Veylo's concise personal stylist. Ground answers in this wardrobe JSON summary when relevant. Keep replies under 120 words.\n${wardrobeSummary}`,
+          content: `${PROMPT_INJECTION_SYSTEM_PREAMBLE}
+
+You are Veylo's concise personal stylist. Ground answers in the wardrobe data block when relevant. Keep replies under 120 words.
+
+${wardrobeBlock}`,
         },
-        { role: 'user', content: transcript },
+        {
+          role: 'user',
+          content: fenceUntrustedData('chat_transcript', transcript),
+        },
       ],
       { model: 'gpt-4o-mini', temperature: 0.6, jsonSchema: REPLY_SCHEMA }
     );

@@ -1,19 +1,29 @@
 import { ClothingItem, WeatherData } from '../types';
 import { isItemWeatherAppropriate } from '../utils/weatherOutfitFilter';
 import { colorHarmonyScoreHsl, namedColorToHsl, type HslColor } from '../utils/hslColor';
+import type { GenderAffinity } from '../utils/itemMetadata';
+import {
+  buildOccasionAwareReasoning,
+  getOccasionProfile,
+  isBannedForOccasion,
+  isGenderCoherentWithPicked,
+  scoreOccasionFit,
+} from '../utils/occasionProfiles';
 
 /** Locked MVP weights — must sum to 1.0 */
 export const DIMENSION_WEIGHTS = {
-  colourHarmony: 0.3,
-  formality: 0.25,
-  weather: 0.2,
-  styleProfile: 0.15,
+  colourHarmony: 0.25,
+  formality: 0.2,
+  occasionFit: 0.2,
+  weather: 0.15,
+  styleProfile: 0.1,
   wearDiversity: 0.1,
 } as const;
 
 export interface DimensionScores {
   colourHarmony: number;
   formality: number;
+  occasionFit: number;
   weather: number;
   styleProfile: number;
   wearDiversity: number;
@@ -29,27 +39,14 @@ export interface ScoringItemInput {
   formality_score?: number | null;
   worn_count?: number | null;
   last_worn?: string | null;
+  gender_affinity?: GenderAffinity | null;
+  occasion_tags?: string[] | null;
 }
 
 function itemHslColors(item: ScoringItemInput): HslColor[] {
   if (item.colors_hsl && item.colors_hsl.length > 0) return item.colors_hsl;
   return item.colors.map(namedColorToHsl);
 }
-
-const NEUTRAL_TOKENS = new Set([
-  'white',
-  'black',
-  'gray',
-  'grey',
-  'navy',
-  'beige',
-  'cream',
-  'tan',
-  'brown',
-  'khaki',
-  'ivory',
-  'charcoal',
-]);
 
 const FORMAL_HINTS = [
   'formal',
@@ -81,10 +78,6 @@ function tagBlob(item: ScoringItemInput): string {
 
 function hasHint(blob: string, hints: string[]): boolean {
   return hints.some((h) => blob.includes(h));
-}
-
-function isNeutral(color: string): boolean {
-  return NEUTRAL_TOKENS.has(color.trim().toLowerCase());
 }
 
 /** 0–100 colour harmony for a candidate against already-picked items. */
@@ -190,6 +183,19 @@ export function scoreWearDiversityDimension(item: ScoringItemInput): number {
   return Math.max(0, Math.min(100, score));
 }
 
+function toOccasionItem(item: ScoringItemInput) {
+  return {
+    id: item.id,
+    category: item.category,
+    subCategory: item.sub_category,
+    colors: item.colors,
+    tags: item.tags,
+    occasionTags: item.occasion_tags,
+    formalityScore: item.formality_score,
+    genderAffinity: item.gender_affinity,
+  };
+}
+
 export function scoreItemDimensions(
   item: ScoringItemInput,
   options: {
@@ -199,9 +205,21 @@ export function scoreItemDimensions(
     occasion?: string;
   }
 ): DimensionScores {
+  const profile = getOccasionProfile(options.occasion);
+  const occasionItem = toOccasionItem(item);
+  const pickedOccasion = options.picked.map(toOccasionItem);
+
+  let occasionFit = 70;
+  if (profile) {
+    if (isBannedForOccasion(occasionItem, profile)) occasionFit = 5;
+    else if (!isGenderCoherentWithPicked(occasionItem, pickedOccasion)) occasionFit = 5;
+    else occasionFit = scoreOccasionFit(occasionItem, profile);
+  }
+
   return {
     colourHarmony: scoreColourHarmonyDimension(item, options.picked),
     formality: scoreFormalityDimension(item, options.picked, options.occasion),
+    occasionFit,
     weather: scoreWeatherDimension(item, options.weather),
     styleProfile: scoreStyleProfileDimension(item, options.styleTerms),
     wearDiversity: scoreWearDiversityDimension(item),
@@ -218,6 +236,9 @@ export function compositeDimensionScore(dimensions: DimensionScores, hasWeather:
 
   total += dimensions.formality * w.formality;
   weightSum += w.formality;
+
+  total += dimensions.occasionFit * w.occasionFit;
+  weightSum += w.occasionFit;
 
   if (hasWeather) {
     total += dimensions.weather * w.weather;
@@ -244,52 +265,39 @@ export function clothingItemToScoringInput(item: ClothingItem): ScoringItemInput
     formality_score: item.formalityScore ?? null,
     worn_count: item.wornCount ?? null,
     last_worn: item.lastWorn ?? null,
+    gender_affinity: item.genderAffinity ?? null,
+    occasion_tags: item.occasionTags ?? null,
   };
 }
 
-/** Plain-English rationale lines from dimension scores. */
+/** Plain-English rationale lines from dimension scores + occasion profile. */
 export function buildDimensionReasoning(
   dimensions: DimensionScores,
-  hasWeather: boolean
+  hasWeather: boolean,
+  options: { items?: ScoringItemInput[]; occasion?: string } = {}
 ): string[] {
-  const lines: string[] = [];
-
-  if (dimensions.colourHarmony >= 85) {
-    lines.push('Colours balance well together.');
-  } else if (dimensions.colourHarmony < 55) {
-    lines.push('Colour mix may feel busy — consider a neutral piece.');
+  const profile = getOccasionProfile(options.occasion);
+  if (options.items && options.items.length > 0) {
+    return buildOccasionAwareReasoning(options.items.map(toOccasionItem), profile, {
+      colourOk: dimensions.colourHarmony >= 80,
+      weatherOk: hasWeather && dimensions.weather >= 80,
+      wearFresh: dimensions.wearDiversity >= 85,
+    });
   }
 
+  const lines: string[] = [];
+  if (dimensions.colourHarmony >= 85) {
+    lines.push('Colours sit comfortably next to each other.');
+  }
   if (dimensions.formality >= 85) {
     lines.push('Formality levels match across pieces.');
-  } else if (dimensions.formality < 50) {
-    lines.push('Some pieces clash in formality — double-check the vibe.');
   }
-
-  if (hasWeather) {
-    if (dimensions.weather >= 85) {
-      lines.push('Well suited to today’s weather.');
-    } else if (dimensions.weather < 50) {
-      lines.push('May not be ideal for current conditions.');
-    }
+  if (hasWeather && dimensions.weather >= 85) {
+    lines.push('Suited to today’s weather.');
   }
-
-  if (dimensions.styleProfile >= 80) {
-    lines.push('Aligns with your style profile.');
-  } else if (dimensions.styleProfile < 45) {
-    lines.push('A bit outside your usual style preferences.');
-  }
-
-  if (dimensions.wearDiversity >= 80) {
-    lines.push('Includes pieces you have not worn recently.');
-  } else if (dimensions.wearDiversity < 45) {
-    lines.push('Relies on items you have worn lately.');
-  }
-
   if (lines.length === 0) {
-    lines.push('A balanced look from your wardrobe.');
+    lines.push('A balanced look pulled from your wardrobe.');
   }
-
   return lines;
 }
 
@@ -306,6 +314,7 @@ export function scoreOutfitDimensions(
     const empty: DimensionScores = {
       colourHarmony: 0,
       formality: 0,
+      occasionFit: 0,
       weather: 0,
       styleProfile: 0,
       wearDiversity: 0,
@@ -334,6 +343,7 @@ export function scoreOutfitDimensions(
   const dimensions: DimensionScores = {
     colourHarmony: avg('colourHarmony'),
     formality: avg('formality'),
+    occasionFit: avg('occasionFit'),
     weather: avg('weather'),
     styleProfile: avg('styleProfile'),
     wearDiversity: avg('wearDiversity'),
@@ -342,6 +352,9 @@ export function scoreOutfitDimensions(
   return {
     composite: compositeDimensionScore(dimensions, hasWeather),
     dimensions,
-    reasoning: buildDimensionReasoning(dimensions, hasWeather),
+    reasoning: buildDimensionReasoning(dimensions, hasWeather, {
+      items,
+      occasion: options.occasion,
+    }),
   };
 }

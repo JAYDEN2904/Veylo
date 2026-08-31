@@ -4,6 +4,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 
 interface Payload {
   scope?: 'following' | 'public';
@@ -17,7 +18,15 @@ Deno.serve(async (req) => {
 
   const ctx = await requireUser(req);
   if (ctx instanceof Response) return ctx;
-  const { userClient } = ctx;
+  const { user, userClient } = ctx;
+
+  const service = getServiceClient();
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'feed-list',
+    userId: user.id,
+    tier: 'light',
+  });
+  if (blocked) return blocked;
 
   let payload: Payload = {};
   try {
@@ -44,7 +53,6 @@ Deno.serve(async (req) => {
 
   const list = rows ?? [];
   const enriched = [];
-  const service = getServiceClient();
 
   for (const r of list as Array<Record<string, unknown>>) {
     const path = r.image_path as string;

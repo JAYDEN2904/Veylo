@@ -1,21 +1,5 @@
-import { Platform } from 'react-native';
 import type { AppTheme } from './types';
-
-// Use system fonts that are available by default
-const fontFamily = Platform.select({
-  ios: {
-    bold: 'System',
-    regular: 'System',
-  },
-  android: {
-    bold: 'sans-serif-medium',
-    regular: 'sans-serif',
-  },
-  default: {
-    bold: 'System',
-    regular: 'System',
-  },
-});
+import { Fonts } from './fonts';
 
 export const theme: AppTheme = {
   colors: {
@@ -37,6 +21,9 @@ export const theme: AppTheme = {
     iconMuted: '#9CA3AF',
     iconSubtle: '#D1D5DB',
     overlayStrong: 'rgba(0, 0, 0, 0.6)',
+    info: '#4DABF7',
+    overlay: 'rgba(0, 0, 0, 0.5)',
+    shadow: 'rgba(0, 0, 0, 0.18)',
   },
   spacing: {
     xs: 4,
@@ -47,24 +34,25 @@ export const theme: AppTheme = {
     xxl: 48,
   },
   borderRadius: {
-    sm: 6,
+    sm: 8,
     md: 12,
-    lg: 24,
+    lg: 16,
+    xl: 24,
     full: 9999,
   },
   typography: {
     header: {
-      fontFamily: fontFamily?.bold,
+      fontFamily: Fonts.displayBold,
       fontWeight: '700' as const,
     },
     body: {
-      fontFamily: fontFamily?.regular,
+      fontFamily: Fonts.bodyRegular,
       fontWeight: '400' as const,
     },
-    h1: { fontSize: 32, fontWeight: '700' },
-    h2: { fontSize: 24, fontWeight: '700' },
-    h3: { fontSize: 20, fontWeight: '600' },
-    caption: { fontSize: 14, fontWeight: '400' },
+    h1: { fontSize: 32, fontWeight: '700', fontFamily: Fonts.displayBold },
+    h2: { fontSize: 24, fontWeight: '700', fontFamily: Fonts.displayBold },
+    h3: { fontSize: 20, fontWeight: '600', fontFamily: Fonts.bodySemiBold },
+    caption: { fontSize: 14, fontWeight: '400', fontFamily: Fonts.bodyRegular },
     scale: {
       xs: 11,
       sm: 13,
@@ -100,7 +88,11 @@ export const theme: AppTheme = {
       elevation: 12,
     },
   },
-  fonts: fontFamily,
+  fonts: {
+    bold: Fonts.displayBold,
+    regular: Fonts.bodyRegular,
+  },
 };
 
 export type { AppTheme, ThemeColors } from './types';
+export { Fonts, interForWeight, frauncesForWeight } from './fonts';

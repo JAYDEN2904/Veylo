@@ -48,10 +48,10 @@ const COLORS = [
 ];
 
 const WEATHER = [
-  { id: 'sunny', label: 'Sunny', icon: 'sunny-outline', temp: '75°F' },
-  { id: 'cloudy', label: 'Cloudy', icon: 'cloudy-outline', temp: '65°F' },
-  { id: 'rainy', label: 'Rainy', icon: 'rainy-outline', temp: '55°F' },
-  { id: 'cold', label: 'Cold', icon: 'snow-outline', temp: '35°F' },
+  { id: 'sunny', label: 'Sunny', icon: 'sunny-outline', temp: '24°C' },
+  { id: 'cloudy', label: 'Cloudy', icon: 'cloudy-outline', temp: '18°C' },
+  { id: 'rainy', label: 'Rainy', icon: 'rainy-outline', temp: '13°C' },
+  { id: 'cold', label: 'Cold', icon: 'snow-outline', temp: '2°C' },
 ];
 
 // Selection chip component

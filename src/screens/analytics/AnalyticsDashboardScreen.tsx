@@ -19,9 +19,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
 import { useOutfitStore } from '../../store/useOutfitStore';
+import { useCalendarStore } from '../../store/useCalendarStore';
 import { useTabScreenPadding } from '../../hooks/useTabScreenPadding';
 
 const { width } = Dimensions.get('window');
+
+function countWearsThisMonth(outfitHistory: { date: string }[]): number {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const monthEnd = now.getTime();
+  return outfitHistory.reduce((count, event) => {
+    const eventTime = new Date(event.date).getTime();
+    if (Number.isNaN(eventTime)) return count;
+    if (eventTime >= monthStart && eventTime <= monthEnd) return count + 1;
+    return count;
+  }, 0);
+}
 
 const StatCard = ({ icon, label, value, color, delay = 0, onPress }: any) => {
   const scale = useSharedValue(0.9);
@@ -120,11 +133,21 @@ const CategoryBreakdown = ({ data }: any) => {
 export const AnalyticsDashboardScreen = ({ navigation }: any) => {
   const { items } = useWardrobeStore();
   const { outfits } = useOutfitStore();
+  const outfitHistory = useCalendarStore((s) => s.calendar.outfitHistory);
   const tabPad = useTabScreenPadding();
   const [refreshing, setRefreshing] = useState(false);
 
+  const rootNavigation = navigation.getParent()?.getParent();
+  const goRoot = (name: string, params?: object) => {
+    (rootNavigation as { navigate: (n: string, p?: object) => void } | undefined)?.navigate(
+      name,
+      params
+    );
+  };
+
   const totalItems = items.length;
   const totalOutfits = outfits.length;
+  const wearsThisMonth = useMemo(() => countWearsThisMonth(outfitHistory), [outfitHistory]);
   const mostWorn = useMemo(
     () => [...items].sort((a, b) => (b.wornCount ?? 0) - (a.wornCount ?? 0)).slice(0, 3),
     [items]
@@ -156,9 +179,9 @@ export const AnalyticsDashboardScreen = ({ navigation }: any) => {
     {
       icon: 'calendar',
       label: 'This Month',
-      value: '12',
+      value: wearsThisMonth,
       color: '#10B981',
-      onPress: () => {},
+      onPress: () => goRoot('CalendarHome'),
     },
     {
       icon: 'trending-up',

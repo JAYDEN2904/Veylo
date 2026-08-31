@@ -75,7 +75,9 @@ export const AvatarPreviewScreen = ({ navigation, route }: any) => {
   const { currentTheme } = useThemeStore();
   const outfitId = route.params?.outfitId;
 
-  const outfit = outfitId ? outfits.find((o) => o.id === outfitId) : generatedOutfit;
+  // Library outfit by id, else the in-memory generated look.
+  const fromLibrary = outfitId ? outfits.find((o) => o.id === outfitId) : undefined;
+  const outfit = fromLibrary ?? generatedOutfit;
   const hasAvatar = !!user?.avatarUrl;
 
   if (!outfit) {

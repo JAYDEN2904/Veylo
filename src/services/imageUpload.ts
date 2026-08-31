@@ -1,5 +1,9 @@
+import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { resolveAvatarsStoragePath } from '../utils/avatarStoragePath';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+
+export { resolveAvatarsStoragePath } from '../utils/avatarStoragePath';
 
 const MAX_EDGE = 1600;
 const JPEG_QUALITY = 0.82;
@@ -7,6 +11,25 @@ const JPEG_QUALITY = 0.82;
 export interface UploadItemPhotoResult {
   path: string;
   publicUrl?: string;
+}
+
+/** ImageManipulator needs a local URI — download remote https images first. */
+async function ensureLocalImageUri(uri: string): Promise<string> {
+  if (!uri.startsWith('http://') && !uri.startsWith('https://')) {
+    return uri;
+  }
+
+  const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  if (!baseDir) {
+    throw new Error('No writable directory available to cache the photo.');
+  }
+
+  const target = `${baseDir}veylo-upload-${Date.now()}.jpg`;
+  const result = await FileSystem.downloadAsync(uri, target);
+  if (result.status !== 200) {
+    throw new Error('Could not download image for upload.');
+  }
+  return result.uri;
 }
 
 /**
@@ -62,8 +85,19 @@ export async function uploadAvatarPhoto(
     return { path: localUri, publicUrl: localUri };
   }
 
+  // Prefer reusing an existing avatars object instead of re-encoding a signed URL
+  // (Android ImageManipulator throws "Could not get decoded bitmap" on remote URLs).
+  const existingPath = resolveAvatarsStoragePath(localUri);
+  if (existingPath) {
+    const { data: signed } = await supabase.storage
+      .from('avatars')
+      .createSignedUrl(existingPath, 3600);
+    return { path: existingPath, publicUrl: signed?.signedUrl };
+  }
+
+  const localImageUri = await ensureLocalImageUri(localUri);
   const manipulated = await ImageManipulator.manipulateAsync(
-    localUri,
+    localImageUri,
     [{ resize: { width: MAX_EDGE } }],
     { compress: JPEG_QUALITY, format: ImageManipulator.SaveFormat.JPEG }
   );

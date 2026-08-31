@@ -7,6 +7,8 @@ import { getServiceClient } from '../_shared/supabase.ts';
 import { tagGarmentFromVision } from '../_shared/cloudVision.ts';
 import { createEmbedding } from '../_shared/openai.ts';
 import { logUsage } from '../_shared/usage.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
+import { deriveGenderAffinity, deriveOccasionTags } from '../_shared/itemMetadata.ts';
 
 interface TagItemPayload {
   item_id: string;
@@ -21,6 +23,14 @@ Deno.serve(async (req) => {
   const ctx = await requireUser(req);
   if (ctx instanceof Response) return ctx;
   const { user, userClient } = ctx;
+
+  const service = getServiceClient();
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'tag-item',
+    userId: user.id,
+    tier: 'moderate',
+  });
+  if (blocked) return blocked;
 
   let payload: TagItemPayload;
   try {
@@ -103,6 +113,17 @@ Deno.serve(async (req) => {
   }
 
   const formalityScore = deriveFormalityScore(tags.category, tags.style_tags);
+  const genderAffinity = deriveGenderAffinity({
+    category: tags.category,
+    subCategory: tags.sub_category,
+    styleTags: tags.style_tags,
+  });
+  const occasionTags = deriveOccasionTags({
+    category: tags.category,
+    subCategory: tags.sub_category,
+    styleTags: tags.style_tags,
+    formalityScore,
+  });
 
   const { data: updated, error: updateError } = await userClient
     .from('clothing_items')
@@ -117,6 +138,8 @@ Deno.serve(async (req) => {
       material: tags.material_guess,
       pattern: tags.pattern,
       formality_score: formalityScore,
+      gender_affinity: genderAffinity,
+      occasion_tags: occasionTags,
       updated_at: new Date().toISOString(),
     })
     .eq('id', payload.item_id)
@@ -135,7 +158,6 @@ Deno.serve(async (req) => {
   }
 
   if (embedding) {
-    const service = getServiceClient();
     const { error: embError } = await service.from('embeddings').upsert(
       {
         user_id: user.id,

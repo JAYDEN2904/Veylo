@@ -148,6 +148,89 @@ export async function signUpWithEmail(
   return { user, accessToken: session.access_token };
 }
 
+/**
+ * Confirm signup with the 6-digit email OTP (no browser / deep link).
+ */
+export async function verifySignupOtp(
+  email: string,
+  token: string
+): Promise<{ user: User; accessToken: string }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedToken = token.replace(/\s/g, '');
+
+  if (!normalizedEmail) {
+    throw new Error('Email is required');
+  }
+  if (!/^\d{6}$/.test(normalizedToken)) {
+    throw new Error('Enter the 6-digit code from your email');
+  }
+
+  if (!isSupabaseConfigured()) {
+    await new Promise((r) => setTimeout(r, 300));
+    return {
+      user: {
+        id: 'local-dev',
+        email: normalizedEmail,
+        name: normalizedEmail.split('@')[0] ?? 'User',
+        preferences: defaultPreferences(),
+      },
+      accessToken: 'mock-token',
+    };
+  }
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    throw new Error('Supabase client unavailable');
+  }
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: normalizedEmail,
+    token: normalizedToken,
+    type: 'signup',
+  });
+
+  if (error) {
+    const message = error.message?.toLowerCase() ?? '';
+    if (message.includes('expired') || message.includes('invalid')) {
+      throw new Error('That code is invalid or expired. Request a new one and try again.');
+    }
+    throw error;
+  }
+
+  const session = data.session;
+  const authUser = data.user;
+  if (!session || !authUser?.email) {
+    throw new Error('Verification failed. Please try again.');
+  }
+
+  const user = await loadUserFromProfile(authUser.id, authUser.email);
+  return { user, accessToken: session.access_token };
+}
+
+/** Resend the signup confirmation OTP email. */
+export async function resendSignupOtp(email: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw new Error('Email is required');
+  }
+
+  if (!isSupabaseConfigured()) {
+    await new Promise((r) => setTimeout(r, 300));
+    return;
+  }
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    throw new Error('Supabase client unavailable');
+  }
+
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email: normalizedEmail,
+  });
+  if (error) throw error;
+}
+
 export async function signOut(): Promise<void> {
   const supabase = getSupabase();
   if (supabase) {

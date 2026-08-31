@@ -121,7 +121,7 @@ function paletteAdjustment(item: ClothingItem, paletteId?: string): number {
 }
 
 /**
- * Weighted composite score (30/25/20/15/10) for slot selection.
+ * Weighted composite score for slot selection (colour / formality / occasion / weather / style / wear).
  */
 export function scoreItemForSlot(
   item: ClothingItem,

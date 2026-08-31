@@ -15,6 +15,7 @@ import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 import { logUsage } from '../_shared/usage.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 
 interface Payload {
   lat?: number;
@@ -142,6 +143,14 @@ Deno.serve(async (req) => {
   if (ctx instanceof Response) return ctx;
   const { user } = ctx;
 
+  const service = getServiceClient();
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'weather-enrich',
+    userId: user.id,
+    tier: 'light',
+  });
+  if (blocked) return blocked;
+
   let payload: Payload;
   try {
     payload = await req.json();
@@ -153,8 +162,6 @@ Deno.serve(async (req) => {
   if (!key) {
     return jsonResponse({ error: 'lat/lon or city required' }, { status: 400 });
   }
-
-  const service = getServiceClient();
 
   const { data: cached } = await service
     .from('weather_cache')

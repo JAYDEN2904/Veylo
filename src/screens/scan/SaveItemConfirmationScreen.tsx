@@ -15,8 +15,16 @@ import Animated, {
   FadeInDown,
   ZoomIn,
 } from 'react-native-reanimated';
-import { Screen, Typography, Button, StyledView, Card } from '../../components/common';
+import {
+  Screen,
+  Typography,
+  PrimaryButton,
+  SecondaryButton,
+  StyledView,
+  Card,
+} from '../../components/common';
 import { useThemeStore } from '../../store/useThemeStore';
+import { hapticService } from '../../utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
@@ -172,7 +180,7 @@ const SuccessCheckmark = () => {
 const ItemPreviewCard = ({ imageUri, category, brand, tags }: any) => {
   const { currentTheme } = useThemeStore();
   return (
-    <Animated.View entering={FadeInDown.duration(600).delay(700)}>
+    <Animated.View entering={FadeInDown.duration(600).delay(180)}>
       <Card
         className="p-0 overflow-hidden"
         style={{
@@ -237,6 +245,7 @@ export const SaveItemConfirmationScreen = ({ navigation, route }: any) => {
   const { clearQueue } = useScanStore();
 
   useEffect(() => {
+    hapticService.success();
     // Only refresh from the live wardrobe — never invent a local row.
     if (isSupabaseConfigured() && itemId) {
       void fetchItems();
@@ -303,7 +312,7 @@ export const SaveItemConfirmationScreen = ({ navigation, route }: any) => {
 
           {/* Text */}
           <Animated.View
-            entering={FadeInDown.duration(500).delay(400)}
+            entering={FadeInDown.duration(500).delay(100)}
             style={{ alignItems: 'center' }}
           >
             <Typography
@@ -326,7 +335,7 @@ export const SaveItemConfirmationScreen = ({ navigation, route }: any) => {
           {/* Duplicate hint */}
           {duplicateMatch && (
             <Animated.View
-              entering={FadeInDown.duration(500).delay(800)}
+              entering={FadeInDown.duration(500).delay(220)}
               style={{ width: '100%', marginBottom: 24 }}
             >
               <View
@@ -371,7 +380,7 @@ export const SaveItemConfirmationScreen = ({ navigation, route }: any) => {
 
           {/* Stats */}
           <Animated.View
-            entering={FadeInDown.duration(500).delay(900)}
+            entering={FadeInDown.duration(500).delay(280)}
             style={{
               flexDirection: 'row',
               justifyContent: 'center',
@@ -401,21 +410,11 @@ export const SaveItemConfirmationScreen = ({ navigation, route }: any) => {
 
           {/* Actions */}
           <Animated.View
-            entering={FadeInDown.duration(500).delay(1100)}
+            entering={FadeInDown.duration(500).delay(350)}
             style={{ width: '100%', gap: 12 }}
           >
-            <Button
-              title="Scan Another Item"
-              onPress={handleAddAnother}
-              variant="secondary"
-              className="w-full rounded-full h-14"
-            />
-            <Button
-              title="View My Closet"
-              onPress={handleViewCloset}
-              variant="outline"
-              className="w-full rounded-full h-14"
-            />
+            <PrimaryButton title="Scan Another Item" onPress={handleAddAnother} />
+            <SecondaryButton title="View My Closet" onPress={handleViewCloset} />
           </Animated.View>
         </View>
       </LinearGradient>

@@ -9,6 +9,8 @@ export { StyleMatchBadge } from './StyleMatchBadge';
 
 export { PrimaryButton, SecondaryButton, GhostButton } from './buttons';
 export { ClothingTile } from './ClothingTile';
+export { PressableScale } from './PressableScale';
+export { OutfitFlatLaySkeleton } from './OutfitFlatLaySkeleton';
 
 export { LoadingAnimation, LoadingOverlay } from './LoadingAnimation';
 export { EmptyState, EmptyStates } from './EmptyState';

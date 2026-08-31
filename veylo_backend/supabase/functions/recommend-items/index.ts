@@ -6,9 +6,17 @@ import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 import { createEmbedding } from '../_shared/openai.ts';
 import { chatCompletionJson } from '../_shared/gpt.ts';
-import { enforceRateLimit } from '../_shared/rateLimit.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 import { logUsage } from '../_shared/usage.ts';
 import { captureException } from '../_shared/sentry.ts';
+import {
+  allowlistOccasion,
+  allowlistSeason,
+  fenceUntrustedData,
+  PROMPT_INJECTION_SYSTEM_PREAMBLE,
+  sanitizeStringList,
+  sanitizeText,
+} from '../_shared/promptSafety.ts';
 
 type Context = 'feed' | 'gaps' | 'similar';
 
@@ -61,18 +69,12 @@ Deno.serve(async (req) => {
   const { user, userClient } = ctx;
 
   const service = getServiceClient();
-  const rl = await enforceRateLimit(service, `rec:${user.id}`, {
-    windowSeconds: 60,
-    maxRequests: 30,
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'recommend-items',
+    userId: user.id,
+    tier: 'paid_chat',
   });
-  if (!rl.ok) {
-    return jsonResponse(
-      { error: 'Rate limited', retry_after: rl.retryAfterSeconds },
-      {
-        status: 429,
-      }
-    );
-  }
+  if (blocked) return blocked;
 
   let payload: Payload = {};
   try {
@@ -83,6 +85,8 @@ Deno.serve(async (req) => {
 
   const context: Context = payload.context ?? 'feed';
   const limit = Math.min(Math.max(payload.limit ?? 8, 1), 20);
+  const occasion = allowlistOccasion(payload.occasion);
+  const season = allowlistSeason(payload.season);
 
   const { data: items, error: itemsError } = await userClient
     .from('clothing_items')
@@ -112,7 +116,12 @@ Deno.serve(async (req) => {
             colors?: string[] | null;
             tags?: string[] | null;
           }) =>
-            [r.category, r.sub_category, ...(r.colors ?? []), ...(r.tags ?? [])]
+            [
+              sanitizeText(r.category, 40),
+              sanitizeText(r.sub_category, 40),
+              ...sanitizeStringList(r.colors, { maxItems: 5, maxItemLen: 24 }),
+              ...sanitizeStringList(r.tags, { maxItems: 8, maxItemLen: 32 }),
+            ]
               .filter(Boolean)
               .join(' ')
         );
@@ -133,7 +142,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  const catalog = rows
+  const catalogRows = rows
     .filter((r: { id: string }) => seedIds.includes(r.id))
     .slice(0, 40)
     .map(
@@ -144,18 +153,25 @@ Deno.serve(async (req) => {
         colors?: string[] | null;
         tags?: string[] | null;
         season?: string[] | null;
-      }) =>
-        `${r.id}: ${r.category}${r.sub_category ? ` (${r.sub_category})` : ''} colors=${(r.colors ?? []).join(',')} tags=${(r.tags ?? []).join(',')} seasons=${(r.season ?? []).join(',')}`
-    )
-    .join('\n');
+      }) => ({
+        id: r.id,
+        category: sanitizeText(r.category, 40),
+        sub_category: sanitizeText(r.sub_category, 40) || null,
+        colors: sanitizeStringList(r.colors, { maxItems: 5, maxItemLen: 24 }),
+        tags: sanitizeStringList(r.tags, { maxItems: 8, maxItemLen: 32 }),
+        seasons: sanitizeStringList(r.season, { maxItems: 4, maxItemLen: 16 }),
+      })
+    );
 
-  const system = `You rank wardrobe item IDs for a smart-closet app. Context=${context}. Only use item ids from the catalog lines. Return up to ${limit} items with short reasons and scores 0-100. Occasion hint: ${payload.occasion ?? 'any'}. Season hint: ${payload.season ?? 'any'}.`;
+  const system = `${PROMPT_INJECTION_SYSTEM_PREAMBLE}
+
+You rank wardrobe item IDs for a smart-closet app. Context=${context}. Only use item ids from the catalog data. Return up to ${limit} items with short reasons and scores 0-100. Occasion hint: ${occasion}. Season hint: ${season}.`;
 
   try {
     const parsed = await chatCompletionJson<{ items: RankedRow[] }>(
       [
         { role: 'system', content: system },
-        { role: 'user', content: `Catalog:\n${catalog}` },
+        { role: 'user', content: fenceUntrustedData('wardrobe_catalog', catalogRows) },
       ],
       { model: 'gpt-4o-mini', jsonSchema: RESPONSE_SCHEMA }
     );

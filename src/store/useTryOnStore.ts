@@ -4,7 +4,11 @@ import { useAuthStore } from './useAuthStore';
 import { functionsClient } from '../services/functionsClient';
 import { getSupabase, isSupabaseConfigured } from '../services/supabase';
 import { uploadAvatarPhoto, signedUrlForBucketPath } from '../services/imageUpload';
+import { resolveAvatarsStoragePath } from '../utils/avatarStoragePath';
 import { fetchClothingItemById } from '../services/wardrobeRepository';
+import { classifyTryOnSlot, tryOnSlotPriority } from '../utils/tryOnGarmentSlots';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface TryOnSession {
   id: string;
@@ -27,6 +31,12 @@ export interface TryOnSession {
   currentGarmentIndex?: number;
   /** Total garments in the outfit (for chained try-on). */
   totalGarments?: number;
+  /** Item ids successfully applied to the result image. */
+  fittedItemIds?: string[];
+  /** Item ids that failed or were skipped after a retry. */
+  failedItemIds?: string[];
+  /** Item ids never sent (unsupported category). */
+  skippedItemIds?: string[];
   createdAt: string;
 }
 
@@ -73,6 +83,9 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       progress: 0,
       currentGarmentIndex: 0,
       totalGarments: items.length,
+      fittedItemIds: [],
+      failedItemIds: [],
+      skippedItemIds: [],
       createdAt: new Date().toISOString(),
     };
     set({ currentSession: session, isProcessing: true, _pollCancelled: false });
@@ -88,8 +101,6 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
 
     const user = useAuthStore.getState().user;
 
-    // Offline / unconfigured → set a clear "coming soon" error state instead of
-    // serving a hardcoded stock image that lies to the user about the result.
     if (!isSupabaseConfigured() || !user?.id) {
       const session = get().currentSession;
       if (!session) return;
@@ -110,12 +121,12 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       const session = get().currentSession;
       if (!session) return;
 
-      const garments = filterTryOnGarments(session.items);
-      if (garments.length === 0) {
+      const { clothing, accessories, skipped } = partitionTryOnItems(session.items);
+      const chain = [...clothing, ...accessories];
+      if (chain.length === 0) {
         throw new Error('No wearable garments in the outfit.');
       }
 
-      // 1. Upload the user photo / avatar to `avatars/{uid}/...`.
       const sourceUri =
         session.useAvatar && session.avatarUrl ? session.avatarUrl : session.userPhotoUri;
       if (!sourceUri) throw new Error('No photo or avatar available.');
@@ -133,103 +144,105 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
       };
 
       nudge(5, 0);
-      const avatarUpload = await uploadAvatarPhoto(user.id, sourceUri, `selfie-${Date.now()}.jpg`);
 
       let userBucket: 'item-photos' | 'avatars' | 'tryon-results' = 'avatars';
-      let currentUserPath = avatarUpload.path;
-      let finalResultPath: string | null = null;
+      let currentUserPath: string;
+      const existingAvatarPath =
+        session.useAvatar && session.avatarUrl
+          ? resolveAvatarsStoragePath(session.avatarUrl)
+          : null;
 
-      // 2. Chain a try-on per garment. The output of garment N feeds garment N+1
-      // so the final image carries the whole outfit.
-      for (let i = 0; i < garments.length; i++) {
-        const garment = garments[i];
-        const fraction = (i + 1) / garments.length;
-        const startProgress = 10 + Math.round((i / garments.length) * 80);
-        const endProgress = 10 + Math.round(fraction * 80);
+      if (existingAvatarPath) {
+        currentUserPath = existingAvatarPath;
+      } else {
+        const avatarUpload = await uploadAvatarPhoto(
+          user.id,
+          sourceUri,
+          `selfie-${Date.now()}.jpg`
+        );
+        currentUserPath = avatarUpload.path;
+      }
+
+      let finalResultPath: string | null = null;
+      const fittedItemIds: string[] = [];
+      const failedItemIds: string[] = [];
+      const skippedItemIds = skipped.map((item) => item.id);
+
+      for (let i = 0; i < chain.length; i++) {
+        const garment = chain[i];
+        const mode = classifyTryOnSlot(garment.category) === 'accessory' ? 'accessory' : 'clothing';
+        const startProgress = 10 + Math.round((i / chain.length) * 80);
+        const endProgress = 10 + Math.round(((i + 1) / chain.length) * 80);
 
         nudge(startProgress, i);
 
         const row = await fetchClothingItemById(garment.id);
-        if (!row) throw new Error(`Garment "${garment.category}" not found in your wardrobe.`);
-
-        const garmentPath = (row.image_path as string | undefined) ?? null;
-        if (!garmentPath) throw new Error(`Garment "${garment.category}" is missing an image.`);
-
-        let res;
-        try {
-          res = await functionsClient.tryOn({
-            user_image_path: currentUserPath,
-            user_image_bucket: userBucket,
-            garment_image_path: garmentPath,
-            outfit_id:
-              session.outfit?.id && !session.outfit.id.startsWith('generated-')
-                ? session.outfit.id
-                : undefined,
-            session_id: session.id,
-          });
-        } catch (err) {
-          // If a non-first garment fails, fall back to whatever we have so far
-          // rather than wiping the whole session.
-          if (i > 0 && finalResultPath) {
-            if (__DEV__) console.warn('[tryon] partial chain failed at garment', i, err);
-            break;
+        if (!row) {
+          failedItemIds.push(garment.id);
+          if (i === 0 && !finalResultPath) {
+            throw new Error(`Garment "${garment.category}" not found in your wardrobe.`);
           }
-          throw err;
+          continue;
         }
 
-        let resultPath: string | null = null;
-        if (res.status === 'succeeded') {
-          resultPath = res.record.result_image_path;
-          finalResultPath = resultPath;
-        } else if (res.status === 'processing') {
-          // Async — poll until succeeded/failed.
-          const polled = await pollUntilDone(res.prediction_id, (pct) => {
+        const garmentPath = (row.image_path as string | undefined) ?? null;
+        if (!garmentPath) {
+          failedItemIds.push(garment.id);
+          if (i === 0 && !finalResultPath) {
+            throw new Error(`Garment "${garment.category}" is missing an image.`);
+          }
+          continue;
+        }
+
+        const resultPath = await tryOnGarmentWithRetry({
+          userPath: currentUserPath,
+          userBucket,
+          garmentPath,
+          garment,
+          mode,
+          session,
+          onPollProgress: (pct) => {
             const blended = startProgress + Math.round((endProgress - startProgress) * (pct / 100));
             nudge(Math.min(endProgress, blended), i);
-          });
-          if (polled.status === 'succeeded') {
-            resultPath = polled.record.result_image_path;
-            finalResultPath = resultPath;
-          } else if (polled.status === 'failed') {
-            if (i > 0 && finalResultPath) {
-              if (__DEV__)
-                console.warn(
-                  '[tryon] partial chain failed during poll at garment',
-                  i,
-                  polled.error
-                );
-              break;
-            }
-            throw new Error(polled.error || 'Try-on failed during processing.');
-          } else {
-            // Still processing after the maximum poll window — keep state for later resumption.
+          },
+          onAsyncPending: (predictionId) => {
             const current = get().currentSession;
             if (current) {
               set({
                 currentSession: {
                   ...current,
                   status: 'pending',
-                  pendingPredictionId: res.prediction_id,
+                  pendingPredictionId: predictionId,
+                  fittedItemIds,
+                  failedItemIds,
+                  skippedItemIds,
                   errorMessage:
                     'Your try-on is still processing on the server. We will let you know in your history when it lands.',
                 },
                 isProcessing: false,
               });
             }
-            return;
-          }
+          },
+        });
+
+        if (resultPath === 'pending') {
+          return;
         }
 
         if (!resultPath) {
-          throw new Error('Try-on returned no result.');
+          failedItemIds.push(garment.id);
+          // Footwear / accessories last: keep partial clothing result rather than failing entirely
+          if (i > 0 && finalResultPath) {
+            if (__DEV__) console.warn('[tryon] garment failed after retry', garment.category);
+            continue;
+          }
+          throw new Error(`Could not fit ${garment.category}.`);
         }
 
-        // For chained garments past the first, the next input is the previous result.
-        if (i < garments.length - 1) {
-          userBucket = 'tryon-results';
-          currentUserPath = resultPath;
-        }
-
+        fittedItemIds.push(garment.id);
+        finalResultPath = resultPath;
+        userBucket = 'tryon-results';
+        currentUserPath = resultPath;
         nudge(endProgress, i);
       }
 
@@ -248,6 +261,10 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
           status: 'complete',
           progress: 100,
           resultImageUri: signed,
+          fittedItemIds,
+          failedItemIds,
+          skippedItemIds,
+          totalGarments: chain.length,
         },
         isProcessing: false,
       });
@@ -303,26 +320,80 @@ export const useTryOnStore = create<TryOnState>((set, get) => ({
   },
 }));
 
-/**
- * Keep top + bottom + dress + outerwear; drop accessories that IDM-VTON cannot meaningfully fit.
- * IDM-VTON works best on torso garments; we still chain bottoms through for layered output.
- */
-function filterTryOnGarments(items: ClothingItem[]): ClothingItem[] {
+function partitionTryOnItems(items: ClothingItem[]): {
+  clothing: ClothingItem[];
+  accessories: ClothingItem[];
+  skipped: ClothingItem[];
+} {
+  const clothing: ClothingItem[] = [];
+  const accessories: ClothingItem[] = [];
+  const skipped: ClothingItem[] = [];
+
   const ordered = [...items].sort(
     (a, b) => tryOnSlotPriority(a.category) - tryOnSlotPriority(b.category)
   );
-  return ordered.filter((item) => tryOnSlotPriority(item.category) < 99);
+
+  for (const item of ordered) {
+    const kind = classifyTryOnSlot(item.category);
+    if (kind === 'clothing') clothing.push(item);
+    else if (kind === 'accessory') accessories.push(item);
+    else skipped.push(item);
+  }
+
+  return { clothing, accessories, skipped };
 }
 
-function tryOnSlotPriority(category: string | undefined): number {
-  const c = (category ?? '').toLowerCase();
-  if (c.includes('dress')) return 0;
-  if (c.includes('top')) return 1;
-  if (c.includes('outerwear') || c.includes('jacket') || c.includes('coat')) return 2;
-  if (c.includes('bottom') || c.includes('pant') || c.includes('skirt') || c.includes('short'))
-    return 3;
-  if (c.includes('shoe')) return 4;
-  return 99;
+async function tryOnGarmentWithRetry(options: {
+  userPath: string;
+  userBucket: 'item-photos' | 'avatars' | 'tryon-results';
+  garmentPath: string;
+  garment: ClothingItem;
+  mode: 'clothing' | 'accessory';
+  session: TryOnSession;
+  onPollProgress: (pct: number) => void;
+  onAsyncPending: (predictionId: string) => void;
+}): Promise<string | null | 'pending'> {
+  const maxAttempts =
+    options.mode === 'clothing' && tryOnSlotPriority(options.garment.category) === 4 ? 2 : 1;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await functionsClient.tryOn({
+        user_image_path: options.userPath,
+        user_image_bucket: options.userBucket,
+        garment_image_path: options.garmentPath,
+        outfit_id:
+          options.session.outfit?.id && UUID_RE.test(options.session.outfit.id)
+            ? options.session.outfit.id
+            : undefined,
+        session_id: options.session.id,
+        mode: options.mode,
+      });
+
+      if (res.status === 'succeeded') {
+        return res.record.result_image_path;
+      }
+
+      if (res.status === 'processing') {
+        const polled = await pollUntilDone(res.prediction_id, options.onPollProgress);
+        if (polled.status === 'succeeded') {
+          return polled.record.result_image_path;
+        }
+        if (polled.status === 'failed') {
+          if (attempt < maxAttempts - 1) continue;
+          return null;
+        }
+        options.onAsyncPending(res.prediction_id);
+        return 'pending';
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('[tryon] attempt failed', attempt, options.garment.category, err);
+      if (attempt < maxAttempts - 1) continue;
+      return null;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -341,7 +412,6 @@ async function pollUntilDone(
   let progressPct = 5;
   onProgress(progressPct);
 
-  // Realtime subscription (opportunistic — fail silently if unavailable).
   const realtime = subscribeToTryOnRow(predictionId);
 
   try {
@@ -350,7 +420,6 @@ async function pollUntilDone(
         return { status: 'timeout' };
       }
 
-      // Realtime fast path.
       const fromRealtime = realtime.latest();
       if (fromRealtime?.status === 'succeeded' && fromRealtime.result_image_path) {
         return {
@@ -377,7 +446,6 @@ async function pollUntilDone(
         if (res.ok === false && res.status === 'failed') {
           return { status: 'failed', error: res.error || 'Try-on failed during processing.' };
         }
-        // Still processing — bump progress smoothly toward 95%.
         progressPct = Math.min(95, progressPct + 5);
         onProgress(progressPct);
       } catch (err) {

@@ -1,15 +1,9 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  StyleProp,
-  Text,
-  TextStyle,
-  TouchableOpacity,
-  View,
-  ViewStyle,
-} from 'react-native';
+import { ActivityIndicator, StyleProp, Text, TextStyle, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
+import { Fonts } from '../../theme/fonts';
+import { PressableScale } from '../PressableScale';
 
 export interface SecondaryButtonProps {
   title: string;
@@ -42,10 +36,10 @@ export const SecondaryButton: React.FC<SecondaryButtonProps> = ({
   const isDisabled = disabled || loading;
 
   return (
-    <TouchableOpacity
+    <PressableScale
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.85}
+      haptic="light"
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: !!isDisabled }}
@@ -83,7 +77,8 @@ export const SecondaryButton: React.FC<SecondaryButtonProps> = ({
               {
                 color: currentTheme.colors.primary,
                 fontSize: 15,
-                fontWeight: '600',
+                fontFamily: Fonts.bodySemiBold,
+                fontWeight: '400',
                 letterSpacing: 0.2,
               },
               textStyle,
@@ -93,6 +88,6 @@ export const SecondaryButton: React.FC<SecondaryButtonProps> = ({
           </Text>
         </View>
       )}
-    </TouchableOpacity>
+    </PressableScale>
   );
 };

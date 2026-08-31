@@ -1,9 +1,21 @@
-import React, { useState } from 'react';
-import { View, Dimensions, Pressable, ScrollView, Platform, StatusBar } from 'react-native';
-import Animated, { FadeInRight, FadeOutLeft, FadeInDown } from 'react-native-reanimated';
+import React, { useState, useEffect } from 'react';
+import { View, Pressable, ScrollView, Platform, StatusBar } from 'react-native';
+import Animated, {
+  FadeInRight,
+  FadeOutLeft,
+  FadeInDown,
+  FadeInLeft,
+  FadeOutRight,
+  ZoomIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '../../components/common';
+import { PressableScale } from '../../components/PressableScale';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useOnboardingStore } from '../../store/useOnboardingStore';
 import type {
@@ -14,8 +26,6 @@ import type {
   ClimateZone,
   PrimaryGoal,
 } from '../../types';
-
-const { width } = Dimensions.get('window');
 
 // ── Question definitions ────────────────────────────────────────────────────
 
@@ -250,7 +260,24 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
   const { currentTheme, mode } = useThemeStore();
   const { answers, setAnswer } = useOnboardingStore();
   const [step, setStep] = useState(0);
+  /** 1 = forward, -1 = back — drives enter/exit direction. */
+  const [navDirection, setNavDirection] = useState<1 | -1>(1);
   const question = QUESTIONS[step];
+  const progressWidth = useSharedValue((step + 1) / TOTAL);
+  const hasAnySelection = question.multi
+    ? Array.isArray(answers[question.key]) && (answers[question.key] as string[]).length > 0
+    : answers[question.key] != null;
+
+  useEffect(() => {
+    progressWidth.value = withTiming((step + 1) / TOTAL, {
+      duration: 250,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [step, progressWidth]);
+
+  const progressBarStyle = useAnimatedStyle(() => ({
+    width: `${progressWidth.value * 100}%`,
+  }));
 
   const currentAnswers: string | string[] | undefined = answers[question.key] as
     | string
@@ -290,7 +317,7 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
           break;
       }
       // Auto-advance for single-select after a short delay
-      setTimeout(() => handleNext(id), 160);
+      setTimeout(() => handleNext(id), 180);
     }
   };
 
@@ -307,6 +334,7 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
     if (answeredValue == null && !question.multi) return;
 
     if (step < TOTAL - 1) {
+      setNavDirection(1);
       setStep((s) => s + 1);
     } else {
       const finalAnswers = {
@@ -323,13 +351,15 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
 
   const handleBack = () => {
     if (step > 0) {
+      setNavDirection(-1);
       setStep((s) => s - 1);
     } else {
       navigation.goBack();
     }
   };
 
-  const progress = (step + 1) / TOTAL;
+  const titleEntering = navDirection === 1 ? FadeInRight.duration(280) : FadeInLeft.duration(280);
+  const titleExiting = navDirection === 1 ? FadeOutLeft.duration(200) : FadeOutRight.duration(200);
 
   return (
     <View style={{ flex: 1, backgroundColor: currentTheme.colors.background }}>
@@ -381,12 +411,14 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
           }}
         >
           <Animated.View
-            style={{
-              height: '100%',
-              borderRadius: 2,
-              backgroundColor: currentTheme.colors.primary,
-              width: `${progress * 100}%`,
-            }}
+            style={[
+              {
+                height: '100%',
+                borderRadius: 2,
+                backgroundColor: currentTheme.colors.primary,
+              },
+              progressBarStyle,
+            ]}
           />
         </View>
       </View>
@@ -399,11 +431,7 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View
-          key={`title-${step}`}
-          entering={FadeInRight.duration(280)}
-          exiting={FadeOutLeft.duration(200)}
-        >
+        <Animated.View key={`title-${step}`} entering={titleEntering} exiting={titleExiting}>
           <Typography
             variant="header"
             style={{
@@ -435,9 +463,12 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
         >
           {question.options.map((opt) => {
             const selected = isOptionSelected(opt.id);
+            const dimmed = hasAnySelection && !selected;
             return (
-              <Pressable
+              <PressableScale
                 key={opt.id}
+                haptic="selection"
+                scaleTo={0.96}
                 onPress={() => handleSelect(opt.id)}
                 accessibilityRole={question.multi ? 'checkbox' : 'radio'}
                 accessibilityState={{ selected }}
@@ -452,6 +483,7 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
                   backgroundColor: selected
                     ? `${currentTheme.colors.primary}10`
                     : currentTheme.colors.surface,
+                  opacity: dimmed ? 0.55 : 1,
                 }}
               >
                 <View
@@ -470,7 +502,9 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
                   <Ionicons
                     name={opt.icon as any}
                     size={22}
-                    color={selected ? '#FFF' : currentTheme.colors.textSecondary}
+                    color={
+                      selected ? currentTheme.colors.onPrimary : currentTheme.colors.textSecondary
+                    }
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -494,13 +528,15 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
                   </Typography>
                 </View>
                 {selected && (
-                  <Ionicons
-                    name={question.multi ? 'checkmark-circle' : 'radio-button-on'}
-                    size={22}
-                    color={currentTheme.colors.primary}
-                  />
+                  <Animated.View entering={ZoomIn.duration(220).springify()}>
+                    <Ionicons
+                      name={question.multi ? 'checkmark-circle' : 'radio-button-on'}
+                      size={22}
+                      color={currentTheme.colors.primary}
+                    />
+                  </Animated.View>
                 )}
-              </Pressable>
+              </PressableScale>
             );
           })}
         </Animated.View>
@@ -530,7 +566,9 @@ export const StyleQuizScreen = ({ navigation, editMode, onComplete }: any) => {
           >
             <Typography
               style={{
-                color: canAdvance() ? '#FFF' : currentTheme.colors.textSecondary,
+                color: canAdvance()
+                  ? currentTheme.colors.onPrimary
+                  : currentTheme.colors.textSecondary,
                 fontSize: 16,
                 fontWeight: '700',
               }}

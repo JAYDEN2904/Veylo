@@ -10,7 +10,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { Typography, StyledView } from './commonPrimitives';
-import { theme } from '../theme';
+import { useThemeStore } from '../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -27,6 +27,7 @@ export const LoadingAnimation = ({
   variant = 'default',
   size = 'large',
 }: LoadingAnimationProps) => {
+  const { currentTheme } = useThemeStore();
   const rotation = useSharedValue(0);
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
@@ -109,14 +110,14 @@ export const LoadingAnimation = ({
             width: iconSize * 2,
             height: iconSize * 2,
             borderRadius: iconSize,
-            backgroundColor: theme.colors.secondary + '20',
+            backgroundColor: currentTheme.colors.secondary + '20',
             justifyContent: 'center',
             alignItems: 'center',
             marginBottom: 24,
           }}
         >
           <LinearGradient
-            colors={[theme.colors.secondary, theme.colors.accent]}
+            colors={[currentTheme.colors.secondary, currentTheme.colors.accent]}
             style={{
               width: iconSize * 1.5,
               height: iconSize * 1.5,
@@ -125,7 +126,7 @@ export const LoadingAnimation = ({
               alignItems: 'center',
             }}
           >
-            <Ionicons name={getIcon() as any} size={iconSize} color={theme.colors.primary} />
+            <Ionicons name={getIcon() as any} size={iconSize} color={currentTheme.colors.primary} />
           </LinearGradient>
         </View>
       </Animated.View>
@@ -135,7 +136,7 @@ export const LoadingAnimation = ({
         style={{
           fontSize: size === 'large' ? 18 : 16,
           fontWeight: '600',
-          color: theme.colors.text,
+          color: currentTheme.colors.text,
           textAlign: 'center',
           marginBottom: 8,
         }}
@@ -155,6 +156,7 @@ export const LoadingAnimation = ({
 
 // Animated dot component
 const AnimatedDot = ({ delay }: { delay: number }) => {
+  const { currentTheme } = useThemeStore();
   const scale = useSharedValue(0.5);
   const opacity = useSharedValue(0.5);
 
@@ -187,7 +189,7 @@ const AnimatedDot = ({ delay }: { delay: number }) => {
           width: 8,
           height: 8,
           borderRadius: 4,
-          backgroundColor: theme.colors.secondary,
+          backgroundColor: currentTheme.colors.secondary,
         },
         dotStyle,
       ]}
@@ -201,6 +203,8 @@ interface LoadingOverlayProps extends LoadingAnimationProps {
 }
 
 export const LoadingOverlay = ({ visible, ...props }: LoadingOverlayProps) => {
+  const { currentTheme } = useThemeStore();
+
   if (!visible) return null;
 
   return (
@@ -219,7 +223,7 @@ export const LoadingOverlay = ({ visible, ...props }: LoadingOverlayProps) => {
     >
       <View
         style={{
-          backgroundColor: theme.colors.background,
+          backgroundColor: currentTheme.colors.background,
           borderRadius: 24,
           padding: 40,
           maxWidth: width - 80,

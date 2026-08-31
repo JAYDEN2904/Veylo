@@ -19,83 +19,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTryOnStore } from '../../store/useTryOnStore';
 import { useTryOnHistoryStore } from '../../store/useTryOnHistoryStore';
 import { shareTryOnResult, saveImageToDevice } from '../../utils/shareService';
+import { BeforeAfterSlider } from '../../components/motion/BeforeAfterSlider';
 
 const { width, height } = Dimensions.get('window');
-
-// Before/After comparison slider (simplified version)
-const ComparisonView = ({ beforeUri, afterUri }: { beforeUri: string; afterUri: string }) => {
-  const [showBefore, setShowBefore] = useState(false);
-
-  return (
-    <View style={{ borderRadius: 24, overflow: 'hidden' }}>
-      <Image
-        source={{ uri: showBefore ? beforeUri : afterUri }}
-        style={{
-          width: '100%',
-          height: width * 1.3,
-          backgroundColor: theme.colors.background,
-        }}
-        contentFit="cover"
-      />
-
-      {/* Toggle Button */}
-      <View
-        style={{
-          position: 'absolute',
-          bottom: 20,
-          left: 0,
-          right: 0,
-          alignItems: 'center',
-        }}
-      >
-        <TouchableOpacity
-          onPress={() => setShowBefore(!showBefore)}
-          style={{
-            flexDirection: 'row',
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            paddingHorizontal: 20,
-            paddingVertical: 12,
-            borderRadius: 24,
-            alignItems: 'center',
-          }}
-        >
-          <Ionicons
-            name={showBefore ? 'eye-off-outline' : 'eye-outline'}
-            size={18}
-            color="#FFFFFF"
-            style={{ marginRight: 8 }}
-          />
-          <Typography style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
-            {showBefore ? 'Show Try-On' : 'Show Original'}
-          </Typography>
-        </TouchableOpacity>
-      </View>
-
-      {/* Label */}
-      <View
-        style={{
-          position: 'absolute',
-          top: 20,
-          left: 20,
-          backgroundColor: showBefore ? 'rgba(0,0,0,0.7)' : theme.colors.secondary,
-          paddingHorizontal: 16,
-          paddingVertical: 8,
-          borderRadius: 16,
-        }}
-      >
-        <Typography
-          style={{
-            color: showBefore ? '#FFFFFF' : theme.colors.primary,
-            fontSize: 12,
-            fontWeight: '700',
-          }}
-        >
-          {showBefore ? 'ORIGINAL' : 'TRY-ON RESULT'}
-        </Typography>
-      </View>
-    </View>
-  );
-};
 
 // Action button component
 const ActionButton = ({ icon, label, onPress, color, isPrimary }: any) => (
@@ -292,11 +218,18 @@ export const TryOnResultScreen = ({ navigation }: any) => {
           </TouchableOpacity>
         </View>
 
-        {/* Result Image */}
+        {/* Result Image — drag handle to compare original vs try-on */}
         <Animated.View entering={ZoomIn.duration(600)} style={{ paddingHorizontal: 24 }}>
-          <ComparisonView
-            beforeUri={currentSession.userPhotoUri ?? ''}
+          <BeforeAfterSlider
+            beforeUri={
+              currentSession.userPhotoUri ||
+              currentSession.avatarUrl ||
+              currentSession.resultImageUri ||
+              ''
+            }
             afterUri={currentSession.resultImageUri ?? currentSession.userPhotoUri ?? ''}
+            width={width - 48}
+            height={(width - 48) * 1.3}
           />
         </Animated.View>
 
@@ -313,7 +246,13 @@ export const TryOnResultScreen = ({ navigation }: any) => {
             {currentSession.outfit?.occasion || 'Your Try-On'}
           </Typography>
           <Typography style={{ color: theme.colors.textSecondary, marginBottom: 20 }}>
-            {currentSession.items.length} pieces • AI-fitted to your body
+            {(() => {
+              const fittedCount = currentSession.fittedItemIds?.length;
+              if (typeof fittedCount === 'number') {
+                return `${fittedCount} of ${currentSession.items.length} pieces fitted`;
+              }
+              return `${currentSession.items.length} pieces • AI-fitted to your body`;
+            })()}
           </Typography>
 
           {/* Items Used */}
@@ -328,42 +267,70 @@ export const TryOnResultScreen = ({ navigation }: any) => {
             ITEMS IN THIS LOOK
           </Typography>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {currentSession.items.map((item, index) => (
-              <View
-                key={item.id}
-                style={{
-                  marginRight: 12,
-                  alignItems: 'center',
-                }}
-              >
+            {currentSession.items.map((item) => {
+              const fittedIds = currentSession.fittedItemIds;
+              const failedIds = currentSession.failedItemIds ?? [];
+              const skippedIds = currentSession.skippedItemIds ?? [];
+              const hasTracking = Array.isArray(fittedIds);
+              const wasFitted = hasTracking ? fittedIds.includes(item.id) : true;
+              const wasFailed = failedIds.includes(item.id);
+              const wasSkipped = skippedIds.includes(item.id);
+              const statusLabel = wasFitted
+                ? 'Fitted'
+                : wasFailed
+                  ? 'Not applied'
+                  : wasSkipped
+                    ? 'Skipped'
+                    : 'Not applied';
+              const borderColor = wasFitted ? theme.colors.success : theme.colors.border;
+
+              return (
                 <View
+                  key={item.id}
                   style={{
-                    width: 80,
-                    height: 80,
-                    borderRadius: 16,
-                    overflow: 'hidden',
-                    borderWidth: 2,
-                    borderColor: theme.colors.border,
-                    marginBottom: 8,
+                    marginRight: 12,
+                    alignItems: 'center',
                   }}
                 >
-                  <Image
-                    source={{ uri: item.imageUrl }}
-                    style={{ width: '100%', height: '100%' }}
-                    contentFit="cover"
-                  />
+                  <View
+                    style={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: 16,
+                      overflow: 'hidden',
+                      borderWidth: 2,
+                      borderColor,
+                      marginBottom: 8,
+                      opacity: wasFitted ? 1 : 0.55,
+                    }}
+                  >
+                    <Image
+                      source={{ uri: item.imageUrl }}
+                      style={{ width: '100%', height: '100%' }}
+                      contentFit="cover"
+                    />
+                  </View>
+                  <Typography
+                    style={{
+                      fontSize: 12,
+                      color: theme.colors.textSecondary,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {item.category}
+                  </Typography>
+                  <Typography
+                    style={{
+                      fontSize: 10,
+                      color: wasFitted ? theme.colors.success : theme.colors.textSecondary,
+                      marginTop: 2,
+                    }}
+                  >
+                    {statusLabel}
+                  </Typography>
                 </View>
-                <Typography
-                  style={{
-                    fontSize: 12,
-                    color: theme.colors.textSecondary,
-                  }}
-                  numberOfLines={1}
-                >
-                  {item.category}
-                </Typography>
-              </View>
-            ))}
+              );
+            })}
           </ScrollView>
         </Animated.View>
 

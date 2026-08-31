@@ -1,15 +1,9 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  StyleProp,
-  Text,
-  TextStyle,
-  TouchableOpacity,
-  View,
-  ViewStyle,
-} from 'react-native';
+import { ActivityIndicator, StyleProp, Text, TextStyle, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
+import { Fonts } from '../../theme/fonts';
+import { PressableScale } from '../PressableScale';
 
 export interface PrimaryButtonProps {
   title: string;
@@ -42,10 +36,10 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   const isDisabled = disabled || loading;
 
   return (
-    <TouchableOpacity
+    <PressableScale
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.85}
+      haptic="light"
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: !!isDisabled }}
@@ -86,7 +80,8 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
               {
                 color: currentTheme.colors.onPrimary,
                 fontSize: 17,
-                fontWeight: '600',
+                fontFamily: Fonts.bodySemiBold,
+                fontWeight: '400',
                 letterSpacing: 0.2,
               },
               textStyle,
@@ -96,6 +91,6 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
           </Text>
         </View>
       )}
-    </TouchableOpacity>
+    </PressableScale>
   );
 };

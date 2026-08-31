@@ -13,6 +13,7 @@ import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 import { createEmbedding } from '../_shared/openai.ts';
 import { logUsage } from '../_shared/usage.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 
 const MAX_INPUT_CHARS = 8000;
 
@@ -28,6 +29,14 @@ Deno.serve(async (req) => {
   const ctx = await requireUser(req);
   if (ctx instanceof Response) return ctx;
   const { user } = ctx;
+
+  const service = getServiceClient();
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'generate-embedding',
+    userId: user.id,
+    tier: 'moderate',
+  });
+  if (blocked) return blocked;
 
   let payload: Payload;
   try {
@@ -54,7 +63,7 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Embedding API failed', detail: String(err) }, { status: 502 });
   }
 
-  await logUsage(getServiceClient(), {
+  await logUsage(service, {
     user_id: user.id,
     function_name: 'generate-embedding',
     provider: 'openai',

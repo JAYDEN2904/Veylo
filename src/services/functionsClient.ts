@@ -48,6 +48,8 @@ export type TryOnRequest = {
   garment_image_path: string;
   outfit_id?: string;
   session_id?: string;
+  /** clothing = Google VTO; accessory = Gemini image-edit composite */
+  mode?: 'clothing' | 'accessory';
 };
 
 export type TryOnRecord = {
@@ -184,6 +186,9 @@ export type GeneratedOutfitItem = {
   season: string[];
   worn_count: number;
   last_worn: string | null;
+  formality_score?: number | null;
+  gender_affinity?: 'men' | 'women' | 'unisex' | null;
+  occasion_tags?: string[] | null;
 };
 
 export type GeneratedOutfit = {

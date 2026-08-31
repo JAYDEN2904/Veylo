@@ -1,1 +1,4 @@
-npx lint-staged
+# Cursor/VS Code Git has no TTY, so lint-staged's spinner freezes on
+# "[STARTED] Backing up original state...". CI=1 forces line-by-line output.
+export CI=1
+npx --no-install lint-staged --verbose

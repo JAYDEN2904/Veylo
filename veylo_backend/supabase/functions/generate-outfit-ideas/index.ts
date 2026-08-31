@@ -1,8 +1,10 @@
-// generate-outfit-ideas — server-side outfit suggestions (weighted 30/25/20/15/10 scorer).
+// generate-outfit-ideas — occasion-aware hybrid scorer + optional Gemini refinement.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { getServiceClient } from '../_shared/supabase.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 import {
   buildOutfitReasoning,
   scoreItemComposite,
@@ -10,6 +12,18 @@ import {
   type ScoringItem,
   type WeatherInput,
 } from '../_shared/outfitDimensionScoring.ts';
+import {
+  filterItemsForOccasion,
+  getOccasionProfile,
+  normalizeOccasionKey,
+  type OccasionKey,
+} from '../_shared/occasionProfiles.ts';
+import type { GenderAffinity } from '../_shared/itemMetadata.ts';
+import {
+  applyRefinement,
+  refineOutfitCandidates,
+  type OutfitCandidate,
+} from '../_shared/outfitRefinement.ts';
 
 interface Payload {
   occasion?: string;
@@ -24,11 +38,16 @@ interface Payload {
 
 interface Item extends ScoringItem {
   season: string[];
+  gender_affinity?: GenderAffinity | null;
+  occasion_tags?: string[] | null;
 }
 
 const SLOT_ORDER = ['top', 'bottom', 'shoes', 'outerwear', 'accessory'] as const;
 const DRESS_SLOTS = ['dress', 'shoes', 'outerwear', 'accessory'] as const;
 type Slot = (typeof SLOT_ORDER)[number] | 'dress';
+
+/** Sample among the top-N scored candidates so regenerates / pill switches feel distinct. */
+const TOP_K_SAMPLE = 3;
 
 function canonicalSlot(category: string): Slot | null {
   const c = category.trim().toLowerCase();
@@ -37,27 +56,19 @@ function canonicalSlot(category: string): Slot | null {
   if (c.startsWith('bottom') || c === 'pants' || c === 'jeans' || c === 'shorts' || c === 'skirt')
     return 'bottom';
   if (c === 'dress' || c === 'jumpsuit' || c === 'dresses') return 'dress';
-  if (c === 'shoes' || c === 'footwear' || c === 'sneakers') return 'shoes';
+  if (
+    c === 'shoes' ||
+    c === 'footwear' ||
+    c === 'sneakers' ||
+    c.includes('shoe') ||
+    c.includes('boot') ||
+    c.includes('sneaker')
+  ) {
+    return 'shoes';
+  }
   if (c === 'outerwear' || c === 'jacket' || c === 'coat') return 'outerwear';
   if (c === 'accessory' || c === 'accessories' || c === 'bag' || c === 'hat') return 'accessory';
   return null;
-}
-
-function normalizeOccasion(raw?: string): string | undefined {
-  if (!raw) return undefined;
-  const key = raw.trim().toLowerCase();
-  const map: Record<string, string> = {
-    casual: 'Casual',
-    work: 'Work',
-    formal: 'Formal',
-    exercise: 'Exercise',
-    sport: 'Exercise',
-    date: 'Date Night',
-    'date night': 'Date Night',
-    party: 'Party',
-    evening: 'Party',
-  };
-  return map[key] ?? raw;
 }
 
 function styleTermSet(prefs: string[]): string[] {
@@ -77,9 +88,16 @@ function styleTermSet(prefs: string[]): string[] {
   return [...out];
 }
 
+function pickFromTopK(scored: Array<{ item: Item; score: number }>, k: number): Item | null {
+  if (scored.length === 0) return null;
+  const pool = scored.slice(0, Math.min(k, scored.length));
+  const index = Math.floor(Math.random() * pool.length);
+  return pool[index].item;
+}
+
 function pickOutfit(
   bySlot: Map<Slot, Item[]>,
-  occasion: string | undefined,
+  occasion: OccasionKey | undefined,
   styleTerms: string[],
   alreadyUsed: Set<string>,
   preferDress: boolean,
@@ -108,16 +126,15 @@ function pickOutfit(
     const candidates = bySlot.get(slot) ?? [];
     if (candidates.length === 0) continue;
 
-    let best: Item | null = null;
-    let bestScore = -Infinity;
+    const scored: Array<{ item: Item; score: number }> = [];
     for (const item of candidates) {
       if (alreadyUsed.has(item.id) || pickedIds.has(item.id)) continue;
       const s = scoreItemComposite(item, picks, styleTerms, weather, occasion);
-      if (s > bestScore) {
-        bestScore = s;
-        best = item;
-      }
+      scored.push({ item, score: s });
     }
+    scored.sort((a, b) => b.score - a.score);
+
+    const best = pickFromTopK(scored, TOP_K_SAMPLE);
     if (best) {
       picks.push(best);
       pickedIds.add(best.id);
@@ -139,6 +156,24 @@ function pickOutfit(
   return { picks, score, reasoning };
 }
 
+function buildSlotMap(items: Item[]): Map<Slot, Item[]> {
+  const bySlot = new Map<Slot, Item[]>();
+  for (const item of items) {
+    const slot = canonicalSlot(item.category);
+    if (!slot) continue;
+    if (!bySlot.has(slot)) bySlot.set(slot, []);
+    bySlot.get(slot)!.push(item);
+  }
+  return bySlot;
+}
+
+function wardrobeCanFormOutfit(bySlot: Map<Slot, Item[]>): boolean {
+  const hasTop = (bySlot.get('top')?.length ?? 0) > 0;
+  const hasBottom = (bySlot.get('bottom')?.length ?? 0) > 0;
+  const hasDress = (bySlot.get('dress')?.length ?? 0) > 0;
+  return hasDress || (hasTop && hasBottom);
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -146,6 +181,13 @@ Deno.serve(async (req) => {
   const ctx = await requireUser(req);
   if (ctx instanceof Response) return ctx;
   const { user, userClient } = ctx;
+
+  const blocked = await guardEndpoint(req, getServiceClient(), {
+    functionName: 'generate-outfit-ideas',
+    userId: user.id,
+    tier: 'light',
+  });
+  if (blocked) return blocked;
 
   let payload: Payload = {};
   if (req.headers.get('content-length') !== '0') {
@@ -157,7 +199,8 @@ Deno.serve(async (req) => {
   }
 
   const count = Math.min(Math.max(payload.count ?? 3, 1), 5);
-  const occasion = normalizeOccasion(payload.occasion);
+  const occasion = normalizeOccasionKey(payload.occasion);
+  const profile = occasion ? getOccasionProfile(occasion) : null;
   const styleTerms = styleTermSet(payload.style_preferences ?? []);
   const weather = payload.weather ?? null;
   const mustIncludeIds = [
@@ -168,12 +211,11 @@ Deno.serve(async (req) => {
   let query = userClient
     .from('clothing_items')
     .select(
-      'id, category, sub_category, colors, colors_hsl, tags, season, worn_count, last_worn, formality_score'
+      'id, category, sub_category, colors, colors_hsl, tags, season, worn_count, last_worn, formality_score, gender_affinity, occasion_tags'
     )
     .eq('status', 'active');
 
   if (payload.season) {
-    // Season values are stored lowercase from Vision (summer, fall, …).
     query = query.contains('season', [payload.season.trim().toLowerCase()]);
   }
 
@@ -182,30 +224,33 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: error.message }, { status: 500 });
   }
 
-  const items = (data ?? []) as Item[];
-  if (items.length === 0) {
+  const allItems = (data ?? []) as Item[];
+  if (allItems.length === 0) {
     return jsonResponse({ ok: true, outfits: [], reason: 'empty_wardrobe' });
   }
 
   const mustIncludeItems = mustIncludeIds
-    .map((id) => items.find((item) => item.id === id) ?? null)
+    .map((id) => allItems.find((item) => item.id === id) ?? null)
     .filter((item): item is Item => item != null);
   if (mustIncludeIds.length > 0 && mustIncludeItems.length !== mustIncludeIds.length) {
     return jsonResponse({ ok: true, outfits: [], reason: 'filters_too_strict' });
   }
 
-  const bySlot = new Map<Slot, Item[]>();
-  for (const item of items) {
-    const slot = canonicalSlot(item.category);
-    if (!slot) continue;
-    if (!bySlot.has(slot)) bySlot.set(slot, []);
-    bySlot.get(slot)!.push(item);
+  // Hard occasion filter first; relax if wardrobe cannot form an outfit.
+  let workingItems = allItems;
+  let usedRelaxedFilters = false;
+  if (profile && mustIncludeItems.length === 0) {
+    const filtered = filterItemsForOccasion(allItems, profile, { hardBan: true });
+    if (wardrobeCanFormOutfit(buildSlotMap(filtered))) {
+      workingItems = filtered;
+    } else {
+      usedRelaxedFilters = true;
+      workingItems = allItems;
+    }
   }
 
-  const hasTop = (bySlot.get('top')?.length ?? 0) > 0;
-  const hasBottom = (bySlot.get('bottom')?.length ?? 0) > 0;
-  const hasDress = (bySlot.get('dress')?.length ?? 0) > 0;
-  if (!hasDress && !(hasTop && hasBottom)) {
+  const bySlot = buildSlotMap(workingItems);
+  if (!wardrobeCanFormOutfit(bySlot)) {
     return jsonResponse({
       ok: true,
       outfits: [],
@@ -215,24 +260,15 @@ Deno.serve(async (req) => {
     });
   }
 
-  const preferDress =
-    mustIncludeItems.length === 0 &&
-    (occasion === 'Formal' || occasion === 'Date Night' || occasion === 'Party');
+  const preferDress = mustIncludeItems.length === 0 && (profile?.preferDress ?? false);
   const usedIds = new Set<string>();
-  const outfits: Array<{
-    id?: string;
-    name: string;
-    occasion: string;
-    items: Item[];
-    style_match_score: number;
-    fit_score: number;
-    fit_reasoning: string[];
-    used_relaxed_filters: boolean;
-  }> = [];
+  const candidates: OutfitCandidate[] = [];
 
-  for (let i = 0; i < count; i++) {
+  // Generate extra candidates so refinement can drop weak ones.
+  const generateCount = Math.min(count + 2, 6);
+  for (let i = 0; i < generateCount; i++) {
     let result: ReturnType<typeof pickOutfit> = null;
-    let relaxed = false;
+    let relaxed = usedRelaxedFilters;
     try {
       result = pickOutfit(
         bySlot,
@@ -262,20 +298,17 @@ Deno.serve(async (req) => {
     if (!result) break;
 
     for (const item of result.picks) usedIds.add(item.id);
-
-    outfits.push({
-      name: occasion ?? 'Outfit',
-      occasion: occasion ?? 'Casual',
+    candidates.push({
+      index: candidates.length,
       items: result.picks,
-      style_match_score: Math.min(100, result.score),
-      fit_score: Math.min(100, result.score),
-      fit_reasoning: result.reasoning,
-      used_relaxed_filters: relaxed,
+      score: result.score,
+      reasoning: result.reasoning,
     });
+    if (relaxed) usedRelaxedFilters = true;
   }
 
-  // Last resort: with a top+bottom (or dress) wardrobe, always return one outfit.
-  if (outfits.length === 0) {
+  // Last resort: forced simple pairing
+  if (candidates.length === 0) {
     const dress = bySlot.get('dress')?.[0];
     const top = bySlot.get('top')?.[0];
     const bottom = bySlot.get('bottom')?.[0];
@@ -291,21 +324,31 @@ Deno.serve(async (req) => {
     const validAnchorOutfit =
       anchorSlots.has('dress') || (anchorSlots.has('top') && anchorSlots.has('bottom'));
     if (anchorPicks.length > 0 && validAnchorOutfit) {
-      console.log('[generate-outfit-ideas] using forced fallback outfit', {
-        itemCount: items.length,
-        slots: [...bySlot.keys()],
-      });
-      outfits.push({
-        name: occasion ?? 'Outfit',
-        occasion: occasion ?? 'Casual',
+      candidates.push({
+        index: 0,
         items: anchorPicks,
-        style_match_score: 65,
-        fit_score: 65,
-        fit_reasoning: ['A simple pairing from your wardrobe.'],
-        used_relaxed_filters: true,
+        score: 65,
+        reasoning: buildOutfitReasoning(anchorPicks, styleTerms, weather, occasion),
       });
+      usedRelaxedFilters = true;
     }
   }
+
+  let refined = candidates;
+  if (candidates.length > 0 && occasion) {
+    const decisions = await refineOutfitCandidates(occasion, candidates);
+    refined = applyRefinement(candidates, decisions);
+  }
+
+  const outfits = refined.slice(0, count).map((c) => ({
+    name: occasion ?? 'Outfit',
+    occasion: occasion ?? 'Casual',
+    items: c.items as Item[],
+    style_match_score: Math.min(100, c.score),
+    fit_score: Math.min(100, c.score),
+    fit_reasoning: c.reasoning,
+    used_relaxed_filters: usedRelaxedFilters,
+  }));
 
   if (payload.persist && outfits.length > 0) {
     for (const outfit of outfits) {
@@ -326,7 +369,7 @@ Deno.serve(async (req) => {
         console.error('[generate-outfit-ideas] insert failed', insertError);
         continue;
       }
-      outfit.id = row.id;
+      (outfit as { id?: string }).id = row.id;
 
       const itemRows = outfit.items.map((item, position) => ({
         outfit_id: row.id,

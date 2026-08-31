@@ -5,6 +5,7 @@ import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
 import { logUsage } from '../_shared/usage.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 import { fetchImage, vertexGenerateContentImage } from '../_shared/vertex.ts';
 
 interface Payload {
@@ -48,6 +49,14 @@ Deno.serve(async (req) => {
   if (ctx instanceof Response) return ctx;
   const { user, userClient } = ctx;
 
+  const service = getServiceClient();
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'generate-avatar',
+    userId: user.id,
+    tier: 'strict',
+  });
+  if (blocked) return blocked;
+
   let payload: Payload;
   try {
     payload = await req.json();
@@ -79,7 +88,6 @@ Deno.serve(async (req) => {
     );
   }
 
-  const service = getServiceClient();
   const avatarRowId = crypto.randomUUID();
   const thumbPath = `${user.id}/avatar-${avatarRowId}.jpg`;
 

@@ -76,6 +76,7 @@ export type AuthStackParamList = {
   Signup: undefined;
   ForgotPassword: undefined;
   EmailVerification: { email?: string } | undefined;
+  EmailVerifiedSuccess: { email?: string } | undefined;
   Permissions: undefined;
 };
 

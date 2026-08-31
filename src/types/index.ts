@@ -76,10 +76,15 @@ export type BodyType =
 // Auth Types
 export interface AuthState {
   user: User | null;
+  /** Verified via OTP but not yet admitted to the app (celebration screen). Not persisted. */
+  pendingVerifiedUser: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
+  verifySignupOtp: (email: string, token: string) => Promise<void>;
+  /** Promote pendingVerifiedUser → authenticated session after the success screen CTA. */
+  completePendingAuth: () => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   loginWithApple: () => Promise<void>;
   logout: () => Promise<void>;
@@ -87,6 +92,7 @@ export interface AuthState {
 }
 
 import type { HslColor } from '../utils/hslColor';
+import type { GenderAffinity } from '../utils/itemMetadata';
 
 // Wardrobe Types
 export interface ClothingItem {
@@ -114,6 +120,10 @@ export interface ClothingItem {
    * scoring engine to enforce formality-delta ≤ 1 between items.
    */
   formalityScore?: number;
+  /** men | women | unisex — used for outfit gender coherence */
+  genderAffinity?: GenderAffinity;
+  /** Occasion keywords (casual, work, date, party, formal, exercise) */
+  occasionTags?: string[];
 }
 
 export interface WardrobeFilters {

@@ -3,7 +3,7 @@ import { ScrollView, TouchableOpacity, FlatList, View, Dimensions } from 'react-
 import { Image } from 'expo-image';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Screen, Typography, Card, StyledView } from '../../components/common';
-import { theme } from '../../theme';
+import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
@@ -19,6 +19,7 @@ import type { PurchaseRecommendation } from '../../types';
 const { width: windowWidth } = Dimensions.get('window');
 
 export const RecommendationsScreen = ({ navigation }: any) => {
+  const { currentTheme } = useThemeStore();
   const tabPad = useTabScreenPadding();
   const { items } = useWardrobeStore();
   const { styleProfile, recordRecommendationThumb, userActions } = useStyleStore();
@@ -53,11 +54,11 @@ export const RecommendationsScreen = ({ navigation }: any) => {
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'high':
-        return theme.colors.error;
+        return currentTheme.colors.error;
       case 'medium':
-        return theme.colors.warning;
+        return currentTheme.colors.warning;
       default:
-        return theme.colors.textSecondary;
+        return currentTheme.colors.textSecondary;
     }
   };
 
@@ -69,7 +70,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
             <Ionicons
               name="checkmark-circle"
               size={48}
-              color={theme.colors.success}
+              color={currentTheme.colors.success}
               style={{ marginBottom: 12 }}
             />
             <Typography className="text-primary font-semibold mb-2 text-center">
@@ -122,7 +123,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                           paddingHorizontal: 10,
                           paddingVertical: 4,
                           borderRadius: 12,
-                          backgroundColor: theme.colors.background,
+                          backgroundColor: currentTheme.colors.background,
                         }}
                       >
                         <Typography className="text-xs text-gray-600">{item}</Typography>
@@ -169,7 +170,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
             <Ionicons
               name="checkmark-circle"
               size={48}
-              color={theme.colors.success}
+              color={currentTheme.colors.success}
               style={{ marginBottom: 12 }}
             />
             <Typography className="text-primary font-semibold mb-2 text-center">
@@ -194,7 +195,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                         width: 48,
                         height: 48,
                         borderRadius: 12,
-                        backgroundColor: theme.colors.accent + '20',
+                        backgroundColor: currentTheme.colors.accent + '20',
                         justifyContent: 'center',
                         alignItems: 'center',
                         marginRight: 12,
@@ -203,7 +204,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                       <Ionicons
                         name={'bag-handle-outline' as never}
                         size={24}
-                        color={theme.colors.accent}
+                        color={currentTheme.colors.accent}
                       />
                     </View>
                     <StyledView style={{ flex: 1 }}>
@@ -229,7 +230,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                             paddingHorizontal: 8,
                             paddingVertical: 4,
                             borderRadius: 8,
-                            backgroundColor: theme.colors.secondary + '20',
+                            backgroundColor: currentTheme.colors.secondary + '20',
                           }}
                         >
                           <Typography className="text-xs font-semibold text-primary">
@@ -252,7 +253,9 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                             name={thumb === 'up' ? 'thumbs-up' : 'thumbs-up-outline'}
                             size={20}
                             color={
-                              thumb === 'up' ? theme.colors.accent : theme.colors.textSecondary
+                              thumb === 'up'
+                                ? currentTheme.colors.accent
+                                : currentTheme.colors.textSecondary
                             }
                           />
                           <Typography className="text-xs text-gray-600">Helpful</Typography>
@@ -266,7 +269,9 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                             name={thumb === 'down' ? 'thumbs-down' : 'thumbs-down-outline'}
                             size={20}
                             color={
-                              thumb === 'down' ? theme.colors.error : theme.colors.textSecondary
+                              thumb === 'down'
+                                ? currentTheme.colors.error
+                                : currentTheme.colors.textSecondary
                             }
                           />
                           <Typography className="text-xs text-gray-600">Not for me</Typography>
@@ -283,7 +288,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
               onPress={() => setShowAllShop(!showAllShop)}
               style={{ alignItems: 'center', paddingVertical: 8 }}
             >
-              <Typography style={{ color: theme.colors.accent, fontWeight: '600' }}>
+              <Typography style={{ color: currentTheme.colors.accent, fontWeight: '600' }}>
                 {showAllShop ? 'Show fewer' : 'See all suggestions'}
               </Typography>
             </TouchableOpacity>
@@ -309,7 +314,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
               <Ionicons
                 name="shirt-outline"
                 size={48}
-                color={theme.colors.textSecondary}
+                color={currentTheme.colors.textSecondary}
                 style={{ opacity: 0.5, marginBottom: 12 }}
               />
               <Typography className="text-gray-500 text-center">
@@ -336,7 +341,7 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                           height: (windowWidth - 88) / 3,
                           borderRadius: 12,
                           overflow: 'hidden',
-                          backgroundColor: theme.colors.background,
+                          backgroundColor: currentTheme.colors.background,
                         }}
                       >
                         <Image
@@ -383,15 +388,18 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                 flex: 1,
                 padding: 12,
                 borderRadius: 12,
-                backgroundColor: activeTab === 'gaps' ? theme.colors.primary : theme.colors.surface,
+                backgroundColor:
+                  activeTab === 'gaps' ? currentTheme.colors.primary : currentTheme.colors.surface,
                 borderWidth: 1,
-                borderColor: activeTab === 'gaps' ? theme.colors.primary : theme.colors.border,
+                borderColor:
+                  activeTab === 'gaps' ? currentTheme.colors.primary : currentTheme.colors.border,
                 alignItems: 'center',
               }}
             >
               <Typography
                 style={{
-                  color: activeTab === 'gaps' ? '#FFF' : theme.colors.text,
+                  color:
+                    activeTab === 'gaps' ? currentTheme.colors.onPrimary : currentTheme.colors.text,
                   fontWeight: '600',
                   fontSize: 12,
                 }}
@@ -406,15 +414,23 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                 padding: 12,
                 borderRadius: 12,
                 backgroundColor:
-                  activeTab === 'purchase' ? theme.colors.primary : theme.colors.surface,
+                  activeTab === 'purchase'
+                    ? currentTheme.colors.primary
+                    : currentTheme.colors.surface,
                 borderWidth: 1,
-                borderColor: activeTab === 'purchase' ? theme.colors.primary : theme.colors.border,
+                borderColor:
+                  activeTab === 'purchase'
+                    ? currentTheme.colors.primary
+                    : currentTheme.colors.border,
                 alignItems: 'center',
               }}
             >
               <Typography
                 style={{
-                  color: activeTab === 'purchase' ? '#FFF' : theme.colors.text,
+                  color:
+                    activeTab === 'purchase'
+                      ? currentTheme.colors.onPrimary
+                      : currentTheme.colors.text,
                   fontWeight: '600',
                   fontSize: 12,
                 }}
@@ -429,15 +445,23 @@ export const RecommendationsScreen = ({ navigation }: any) => {
                 padding: 12,
                 borderRadius: 12,
                 backgroundColor:
-                  activeTab === 'complete' ? theme.colors.primary : theme.colors.surface,
+                  activeTab === 'complete'
+                    ? currentTheme.colors.primary
+                    : currentTheme.colors.surface,
                 borderWidth: 1,
-                borderColor: activeTab === 'complete' ? theme.colors.primary : theme.colors.border,
+                borderColor:
+                  activeTab === 'complete'
+                    ? currentTheme.colors.primary
+                    : currentTheme.colors.border,
                 alignItems: 'center',
               }}
             >
               <Typography
                 style={{
-                  color: activeTab === 'complete' ? '#FFF' : theme.colors.text,
+                  color:
+                    activeTab === 'complete'
+                      ? currentTheme.colors.onPrimary
+                      : currentTheme.colors.text,
                   fontWeight: '600',
                   fontSize: 12,
                 }}

@@ -62,7 +62,7 @@ Content-Type: application/json
 
 **generate-avatar:** `{ photo_path, photo_bucket?, body_type? }` → `{ ok, avatar, signed_thumbnail_url }` (Imagen 3 Customization)
 
-**moderate-image:** `{ image_url? }` or `{ bucket, path, caption? }`
+**moderate-image:** `{ bucket, path, caption? }` — `bucket` must be one of `item-photos` | `avatars` | `tryon-results` | `feed-photos`. Free-form `image_url` is rejected (SSRF defense).
 
 **feed-create-post:** `{ image_path, caption?, outfit_id?, item_ids?, visibility? }`
 

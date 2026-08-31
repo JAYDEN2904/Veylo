@@ -1,46 +1,37 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { View, Platform, Pressable } from 'react-native';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withDelay,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '../../components/common';
+import { PressableScale } from '../../components/PressableScale';
+import { BreathingOrb } from '../../components/motion/BreathingOrb';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useOnboardingStore } from '../../store/useOnboardingStore';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { deriveStyleDnaLabel, getStyleDnaDescription } from '../../utils/styleDna';
 import type { OnboardingQuizAnswers } from '../../types';
 
 export const StyleDnaRevealScreen = ({ navigation, route }: any) => {
   const insets = useSafeAreaInsets();
   const { currentTheme } = useThemeStore();
+  const reducedMotion = useReducedMotion();
   const { answers: storedAnswers, setAnswer } = useOnboardingStore();
 
   const passedAnswers: Partial<OnboardingQuizAnswers> = route?.params?.answers ?? storedAnswers;
   const dnaLabel = deriveStyleDnaLabel(passedAnswers);
   const dnaDescription = getStyleDnaDescription(dnaLabel);
-
-  const scale = useSharedValue(0.6);
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const traits = buildTraits(passedAnswers);
 
   useEffect(() => {
-    scale.value = withDelay(200, withSpring(1, { damping: 12, stiffness: 100 }));
-    // Persist the dna label into the onboarding answers store
     if (passedAnswers.styleArchetype) {
       setAnswer('styleArchetype', passedAnswers.styleArchetype);
     }
     if (passedAnswers.lifestyle) {
       setAnswer('lifestyle', passedAnswers.lifestyle);
     }
-  }, []);
+  }, [passedAnswers.lifestyle, passedAnswers.styleArchetype, setAnswer]);
 
   const handleSave = () => {
     navigation.navigate('Signup');
@@ -50,15 +41,12 @@ export const StyleDnaRevealScreen = ({ navigation, route }: any) => {
     navigation.navigate('Signup');
   };
 
-  const traits = buildTraits(passedAnswers);
-
   return (
     <View style={{ flex: 1, backgroundColor: currentTheme.colors.background }}>
       <LinearGradient
         colors={[currentTheme.colors.background, `${currentTheme.colors.primary}22`]}
         style={{ flex: 1 }}
       >
-        {/* Close / skip */}
         <Pressable
           onPress={handleSkip}
           hitSlop={12}
@@ -89,36 +77,17 @@ export const StyleDnaRevealScreen = ({ navigation, route }: any) => {
             paddingHorizontal: 28,
           }}
         >
-          {/* DNA Badge */}
-          <Animated.View style={cardStyle}>
-            <Animated.View entering={FadeIn.duration(400)}>
-              <LinearGradient
-                colors={[currentTheme.colors.primary, currentTheme.colors.secondary ?? '#C4A962']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{
-                  width: 120,
-                  height: 120,
-                  borderRadius: 60,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: 32,
-                  alignSelf: 'center',
-                  shadowColor: currentTheme.colors.primary,
-                  shadowOpacity: 0.4,
-                  shadowRadius: 24,
-                  shadowOffset: { width: 0, height: 8 },
-                  elevation: 12,
-                }}
-              >
-                <Typography style={{ fontSize: 48 }}>✦</Typography>
-              </LinearGradient>
-            </Animated.View>
+          <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(400)}>
+            <BreathingOrb
+              size={128}
+              primaryColor={currentTheme.colors.primary}
+              secondaryColor={currentTheme.colors.secondary}
+            />
           </Animated.View>
 
           <Animated.View
-            entering={FadeInDown.duration(400).delay(300)}
-            style={{ alignItems: 'center' }}
+            entering={reducedMotion ? undefined : FadeInDown.duration(420).delay(280)}
+            style={{ alignItems: 'center', marginTop: 28 }}
           >
             <Typography
               style={{
@@ -158,7 +127,6 @@ export const StyleDnaRevealScreen = ({ navigation, route }: any) => {
               {dnaDescription}
             </Typography>
 
-            {/* Trait chips */}
             <View
               style={{
                 flexDirection: 'row',
@@ -168,9 +136,16 @@ export const StyleDnaRevealScreen = ({ navigation, route }: any) => {
                 marginBottom: 48,
               }}
             >
-              {traits.map((trait) => (
-                <View
+              {traits.map((trait, index) => (
+                <Animated.View
                   key={trait}
+                  entering={
+                    reducedMotion
+                      ? undefined
+                      : ZoomIn.duration(320)
+                          .delay(420 + index * 90)
+                          .springify()
+                  }
                   style={{
                     paddingHorizontal: 14,
                     paddingVertical: 6,
@@ -189,21 +164,21 @@ export const StyleDnaRevealScreen = ({ navigation, route }: any) => {
                   >
                     {trait}
                   </Typography>
-                </View>
+                </Animated.View>
               ))}
             </View>
           </Animated.View>
         </View>
 
-        {/* Bottom CTA */}
         <Animated.View
-          entering={FadeInDown.duration(400).delay(500)}
+          entering={reducedMotion ? undefined : FadeInDown.duration(400).delay(560)}
           style={{
             paddingHorizontal: 28,
             paddingBottom: insets.bottom + (Platform.OS === 'ios' ? 24 : 20),
           }}
         >
-          <Pressable
+          <PressableScale
+            haptic="medium"
             onPress={handleSave}
             style={{
               backgroundColor: currentTheme.colors.primary,
@@ -221,11 +196,13 @@ export const StyleDnaRevealScreen = ({ navigation, route }: any) => {
             }}
             accessibilityLabel="Save your Style DNA and create account"
           >
-            <Ionicons name="lock-closed-outline" size={18} color="#FFF" />
-            <Typography style={{ color: '#FFF', fontSize: 17, fontWeight: '700' }}>
+            <Ionicons name="lock-closed-outline" size={18} color={currentTheme.colors.onPrimary} />
+            <Typography
+              style={{ color: currentTheme.colors.onPrimary, fontSize: 17, fontWeight: '700' }}
+            >
               Save Your Style DNA
             </Typography>
-          </Pressable>
+          </PressableScale>
 
           <Typography
             style={{

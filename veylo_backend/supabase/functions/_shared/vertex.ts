@@ -138,8 +138,9 @@ function mimeFromContentType(contentType: string | null): string {
   return 'image/jpeg';
 }
 
-/** Download image bytes from a signed URL (base64 + mime). */
+/** Download image bytes from an allowlisted Supabase signed URL (base64 + mime). */
 export async function fetchImage(url: string): Promise<FetchedImage> {
+  assertAllowlistedImageUrl(url);
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Could not download image: ${res.status}`);
@@ -150,6 +151,33 @@ export async function fetchImage(url: string): Promise<FetchedImage> {
     base64: toBase64(bytes),
     mimeType: mimeFromContentType(res.headers.get('content-type')),
   };
+}
+
+function assertAllowlistedImageUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('Invalid image URL');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Image URL must use https');
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  if (!supabaseUrl) {
+    throw new Error('SUPABASE_URL is not configured');
+  }
+  let allowedHost: string;
+  try {
+    allowedHost = new URL(supabaseUrl).host.toLowerCase();
+  } catch {
+    throw new Error('SUPABASE_URL is invalid');
+  }
+
+  if (parsed.host.toLowerCase() !== allowedHost) {
+    throw new Error('Image URL host is not allowlisted');
+  }
 }
 
 /** Download image bytes from a signed URL and return base64. */
@@ -217,6 +245,8 @@ export interface VertexImageEditRequest {
   imageBase64: string;
   mimeType?: string;
   aspectRatio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9';
+  /** Optional extra reference images (e.g. accessory product shot). */
+  extraImages?: Array<{ base64: string; mimeType?: string }>;
 }
 
 /**
@@ -228,19 +258,30 @@ export async function vertexGenerateContentImage(
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const token = await fetchAccessToken();
   const mimeType = request.mimeType ?? 'image/jpeg';
+  const parts: Array<Record<string, unknown>> = [
+    { text: request.prompt },
+    {
+      inlineData: {
+        mimeType,
+        data: request.imageBase64,
+      },
+    },
+  ];
+
+  for (const extra of request.extraImages ?? []) {
+    parts.push({
+      inlineData: {
+        mimeType: extra.mimeType ?? 'image/jpeg',
+        data: extra.base64,
+      },
+    });
+  }
+
   const body = {
     contents: [
       {
         role: 'user',
-        parts: [
-          { text: request.prompt },
-          {
-            inlineData: {
-              mimeType,
-              data: request.imageBase64,
-            },
-          },
-        ],
+        parts,
       },
     ],
     generationConfig: {
@@ -263,12 +304,12 @@ export async function vertexGenerateContentImage(
   }
 
   const data = await res.json();
-  const parts = data?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) {
+  const responseParts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(responseParts)) {
     throw new Error(`Vertex generateContent ${model} returned no content parts`);
   }
 
-  for (const part of parts) {
+  for (const part of responseParts) {
     const inline = part?.inlineData ?? part?.inline_data;
     const encoded = inline?.data;
     if (typeof encoded === 'string' && encoded.length > 0) {
@@ -283,4 +324,51 @@ export async function vertexGenerateContentImage(
   }
 
   throw new Error(`Vertex generateContent ${model} returned no image data`);
+}
+
+/**
+ * Gemini text via `:generateContent` — used for outfit refinement / natural reasoning.
+ */
+export async function vertexGenerateContentText(
+  model: string,
+  prompt: string,
+  options: { temperature?: number; maxOutputTokens?: number } = {}
+): Promise<string> {
+  const token = await fetchAccessToken();
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: options.temperature ?? 0.4,
+      maxOutputTokens: options.maxOutputTokens ?? 1024,
+      responseMimeType: 'application/json',
+    },
+  };
+
+  const res = await fetch(publisherModelUrl(model, 'generateContent'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Vertex generateContent text ${model} ${res.status}: ${await res.text()}`);
+  }
+
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) {
+    throw new Error(`Vertex generateContent text ${model} returned no parts`);
+  }
+
+  const text = parts
+    .map((p: { text?: string }) => (typeof p?.text === 'string' ? p.text : ''))
+    .join('')
+    .trim();
+  if (!text) {
+    throw new Error(`Vertex generateContent text ${model} returned empty text`);
+  }
+  return text;
 }

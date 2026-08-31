@@ -1,15 +1,9 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  StyleProp,
-  Text,
-  TextStyle,
-  TouchableOpacity,
-  View,
-  ViewStyle,
-} from 'react-native';
+import { ActivityIndicator, StyleProp, Text, TextStyle, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
+import { Fonts } from '../../theme/fonts';
+import { PressableScale } from '../PressableScale';
 
 export interface GhostButtonProps {
   title: string;
@@ -41,10 +35,10 @@ export const GhostButton: React.FC<GhostButtonProps> = ({
   const isDisabled = disabled || loading;
 
   return (
-    <TouchableOpacity
+    <PressableScale
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.7}
+      haptic="light"
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: !!isDisabled }}
@@ -79,7 +73,8 @@ export const GhostButton: React.FC<GhostButtonProps> = ({
               {
                 color: currentTheme.colors.primary,
                 fontSize: 15,
-                fontWeight: '600',
+                fontFamily: Fonts.bodySemiBold,
+                fontWeight: '400',
               },
               textStyle,
             ]}
@@ -88,6 +83,6 @@ export const GhostButton: React.FC<GhostButtonProps> = ({
           </Text>
         </View>
       )}
-    </TouchableOpacity>
+    </PressableScale>
   );
 };

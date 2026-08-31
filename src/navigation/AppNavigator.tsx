@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
 import { AppState, AppStateStatus, View, Platform, StyleSheet, Appearance } from 'react-native';
 import { BlurView } from 'expo-blur';
 import {
@@ -18,6 +17,7 @@ import { getMainTabBarFloatingStyle } from './tabBarStyles';
 import { usePendingRatingStore } from '../store/usePendingRatingStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { PostWearRatingSheet } from '../components/PostWearRatingSheet';
+import { AnimatedTabIcon, CameraFab } from '../components/motion/TabBarMotion';
 
 // Today + Wardrobe Screens
 import { TodayScreen } from '../screens/today/TodayScreen';
@@ -231,33 +231,15 @@ const MainTabs = () => {
 
           if (route.name === 'ScanStack') {
             return (
-              <View
-                style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: currentTheme.colors.secondary,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginTop: -32,
-                  shadowColor: currentTheme.colors.secondary,
-                  shadowOffset: { width: 0, height: 6 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 12,
-                  elevation: 8,
-                }}
-                accessibilityRole="button"
-              >
-                <Ionicons name={iconName as never} size={28} color={cameraIconColor} />
-              </View>
+              <CameraFab
+                backgroundColor={currentTheme.colors.secondary}
+                iconColor={cameraIconColor}
+                focused={focused}
+              />
             );
           }
 
-          return (
-            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name={iconName as never} size={24} color={color} />
-            </View>
-          );
+          return <AnimatedTabIcon name={iconName} focused={focused} color={color} size={24} />;
         },
         tabBarStyle: floatingTabBarStyle,
         tabBarItemStyle: {

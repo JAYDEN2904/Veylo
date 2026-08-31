@@ -3,7 +3,9 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { getServiceClient } from '../_shared/supabase.ts';
 import { moderateText } from '../_shared/moderation.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 
 interface Payload {
   post_id: string;
@@ -17,6 +19,13 @@ Deno.serve(async (req) => {
   const ctx = await requireUser(req);
   if (ctx instanceof Response) return ctx;
   const { user, userClient } = ctx;
+
+  const blocked = await guardEndpoint(req, getServiceClient(), {
+    functionName: 'feed-add-comment',
+    userId: user.id,
+    tier: 'moderate',
+  });
+  if (blocked) return blocked;
 
   let payload: Payload;
   try {

@@ -19,6 +19,7 @@ import Animated, {
   interpolate,
   FadeInDown,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Screen,
   Typography,
@@ -174,6 +175,7 @@ const AnimatedInput = ({
 };
 
 export const SignupScreen = ({ navigation }: any) => {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -260,6 +262,7 @@ export const SignupScreen = ({ navigation }: any) => {
             flexGrow: 1,
             justifyContent: 'center',
             padding: 24,
+            paddingBottom: Math.max(insets.bottom, 16) + 32,
           }}
           keyboardShouldPersistTaps="handled"
         >

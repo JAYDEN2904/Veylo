@@ -145,7 +145,7 @@ export const scheduleWeatherOutfitSuggestion = async (
           location.longitude
         );
         if (weather) {
-          weatherInfo = `Expect ${weather.condition.toLowerCase()} with ${weather.temperature}°F. `;
+          weatherInfo = `Expect ${weather.condition.toLowerCase()} with ${weather.temperature}°C. `;
         }
       } catch (error) {
         console.log('Could not fetch weather for notification:', error);

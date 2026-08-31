@@ -413,8 +413,8 @@ function resolveWizardWeather(raw: unknown): WeatherData | null {
   switch (raw.toLowerCase()) {
     case 'sunny':
       return {
-        temperature: 75,
-        feelsLike: 75,
+        temperature: 24,
+        feelsLike: 24,
         condition: 'Clear',
         description: 'sunny',
         humidity: 50,
@@ -424,8 +424,8 @@ function resolveWizardWeather(raw: unknown): WeatherData | null {
       };
     case 'cloudy':
       return {
-        temperature: 65,
-        feelsLike: 63,
+        temperature: 18,
+        feelsLike: 17,
         condition: 'Clouds',
         description: 'cloudy',
         humidity: 60,
@@ -435,8 +435,8 @@ function resolveWizardWeather(raw: unknown): WeatherData | null {
       };
     case 'rainy':
       return {
-        temperature: 55,
-        feelsLike: 52,
+        temperature: 13,
+        feelsLike: 11,
         condition: 'Rain',
         description: 'rainy',
         humidity: 85,
@@ -446,8 +446,8 @@ function resolveWizardWeather(raw: unknown): WeatherData | null {
       };
     case 'cold':
       return {
-        temperature: 35,
-        feelsLike: 30,
+        temperature: 2,
+        feelsLike: 0,
         condition: 'Snow',
         description: 'cold',
         humidity: 70,
@@ -475,6 +475,9 @@ function mapGeneratedOutfit(g: GeneratedOutfit, wardrobe: ClothingItem[]): Outfi
       season: srv.season ?? undefined,
       wornCount: srv.worn_count ?? undefined,
       lastWorn: srv.last_worn ?? undefined,
+      formalityScore: srv.formality_score ?? undefined,
+      genderAffinity: srv.gender_affinity ?? undefined,
+      occasionTags: srv.occasion_tags ?? undefined,
       status: 'active',
       createdAt: new Date().toISOString(),
     };

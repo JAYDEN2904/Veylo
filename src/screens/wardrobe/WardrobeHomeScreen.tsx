@@ -222,7 +222,7 @@ export const WardrobeHomeScreen = ({ navigation }: Props) => {
                         marginBottom: 4,
                       }}
                     >
-                      {weather.temperature}°F • {weather.condition}
+                      {weather.temperature}°C • {weather.condition}
                     </Typography>
                     <Typography
                       style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, lineHeight: 18 }}

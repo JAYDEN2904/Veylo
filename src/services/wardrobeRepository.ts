@@ -22,6 +22,8 @@ export type ClothingRow = {
   formality_score: number | null;
   material: string | null;
   pattern: string | null;
+  gender_affinity: 'men' | 'women' | 'unisex' | null;
+  occasion_tags: string[] | null;
 };
 
 export type ClothingItemInsert = {
@@ -70,6 +72,8 @@ function rowToItem(row: ClothingRow, imageUrl: string): ClothingItem {
     formalityScore: row.formality_score ?? undefined,
     material: row.material ?? undefined,
     pattern: row.pattern ?? undefined,
+    genderAffinity: row.gender_affinity ?? undefined,
+    occasionTags: row.occasion_tags ?? undefined,
   };
 }
 
@@ -173,6 +177,8 @@ export function clothingItemUpdatesToPatch(updates: Partial<ClothingItem>): Clot
   if (updates.formalityScore !== undefined) patch.formality_score = updates.formalityScore;
   if (updates.material !== undefined) patch.material = updates.material ?? null;
   if (updates.pattern !== undefined) patch.pattern = updates.pattern ?? null;
+  if (updates.genderAffinity !== undefined) patch.gender_affinity = updates.genderAffinity ?? null;
+  if (updates.occasionTags !== undefined) patch.occasion_tags = updates.occasionTags ?? [];
   return patch;
 }
 

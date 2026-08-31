@@ -4,6 +4,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 
 type EventKind = 'outfit_logged' | 'item_added' | 'tryon_completed';
 
@@ -25,6 +26,14 @@ Deno.serve(async (req) => {
   if (ctx instanceof Response) return ctx;
   const { user } = ctx;
 
+  const service = getServiceClient();
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'gamification-events',
+    userId: user.id,
+    tier: 'light',
+  });
+  if (blocked) return blocked;
+
   let payload: Payload;
   try {
     payload = await req.json();
@@ -38,7 +47,6 @@ Deno.serve(async (req) => {
   }
 
   const delta = POINTS[ev];
-  const service = getServiceClient();
 
   const { data: existing } = await service
     .from('user_stats')

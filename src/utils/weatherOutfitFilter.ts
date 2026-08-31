@@ -12,8 +12,8 @@ export const isItemWeatherAppropriate = (item: ClothingItem, weather: WeatherDat
   const season = item.season?.map((s) => s.toLowerCase()) || [];
   const isShorts = category.includes('shorts') || subCategory.includes('shorts');
 
-  // Temperature-based filtering
-  if (temp >= 75) {
+  // Temperature-based filtering (Celsius)
+  if (temp >= 24) {
     // Hot weather - prefer light, summer items
     if (
       category.includes('outerwear') &&
@@ -27,12 +27,12 @@ export const isItemWeatherAppropriate = (item: ClothingItem, weather: WeatherDat
     if (tags.some((t) => t.includes('warm') || t.includes('wool') || t.includes('heavy'))) {
       return false;
     }
-  } else if (temp >= 60) {
+  } else if (temp >= 16) {
     // Warm weather - light layers OK, avoid heavy outerwear
     if (tags.some((t) => t.includes('heavy') || t.includes('winter') || t.includes('coat'))) {
       return false;
     }
-  } else if (temp >= 50) {
+  } else if (temp >= 10) {
     // Cool weather - need some layers
     if (isShorts && !tags.some((t) => t.includes('long'))) {
       return false;
@@ -48,7 +48,7 @@ export const isItemWeatherAppropriate = (item: ClothingItem, weather: WeatherDat
     if (season.includes('summer') && !season.includes('fall') && !season.includes('winter')) {
       return false;
     }
-    if (tags.some((t) => t.includes('light') || t.includes('linen')) && temp < 45) {
+    if (tags.some((t) => t.includes('light') || t.includes('linen')) && temp < 7) {
       return false;
     }
   }
@@ -70,7 +70,7 @@ export const isItemWeatherAppropriate = (item: ClothingItem, weather: WeatherDat
 
   if (condition.includes('snow')) {
     // Need warm, protective items
-    if (temp < 32 && !category.includes('outerwear') && !tags.some((t) => t.includes('warm'))) {
+    if (temp < 0 && !category.includes('outerwear') && !tags.some((t) => t.includes('warm'))) {
       return false;
     }
   }
@@ -105,8 +105,8 @@ export const scoreOutfitWeatherAppropriateness = (
     const category = item.category.toLowerCase();
     const tags = item.tags.map((t) => t.toLowerCase());
 
-    // Temperature scoring
-    if (temp >= 75) {
+    // Temperature scoring (Celsius)
+    if (temp >= 24) {
       if (
         category.includes('tops') &&
         tags.some((t) => t.includes('light') || t.includes('breathable'))
@@ -115,7 +115,7 @@ export const scoreOutfitWeatherAppropriateness = (
       }
       if (category.includes('shorts')) score += 15;
       if (category.includes('outerwear') && tags.some((t) => t.includes('light'))) score += 10;
-    } else if (temp >= 60) {
+    } else if (temp >= 16) {
       if (category.includes('tops') || category.includes('bottoms')) score += 15;
       if (
         category.includes('outerwear') &&
@@ -123,7 +123,7 @@ export const scoreOutfitWeatherAppropriateness = (
       ) {
         score += 15;
       }
-    } else if (temp >= 50) {
+    } else if (temp >= 10) {
       if (category.includes('outerwear')) score += 20;
       if (category.includes('tops') && !tags.some((t) => t.includes('tank'))) score += 15;
     } else {

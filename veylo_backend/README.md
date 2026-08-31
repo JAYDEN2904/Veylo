@@ -136,3 +136,55 @@ npm run backend:smoke
 ```
 
 See `scripts/smoke.sh` for steps and assertions.
+
+## Security hardening (2026-07-27)
+
+### Rate limits + spend caps
+
+All user-facing Edge Functions call `guardEndpoint` (user + IP fixed-window limits). Paid AI endpoints also enforce:
+
+- **Global daily spend cap** — sum of `api_usage.cost_usd` for the UTC day; default `$10` via `DAILY_SPEND_CAP_USD`.
+- **Per-user daily op caps** — try-on 20, avatar 5, tag-item 60, embeddings 100 (env-overridable).
+
+Paid endpoints **fail closed** if the limiter/ledger is unavailable (prefer temporary unavailability over unbounded spend).
+
+Set optional secrets:
+
+```bash
+npx supabase secrets set DAILY_SPEND_CAP_USD=10 --project-ref igeyjmcfklymyeaahmtw
+```
+
+### Manual Dashboard steps (cannot be done from migrations)
+
+1. **Auth → Attack Protection** — enable [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) (HaveIBeenPwned).
+2. **Auth rate limits** — review login/signup/OTP limits under Authentication → Rate Limits.
+3. Optional: enable CAPTCHA for signup.
+4. **Confirm sign up email template (OTP)** — Authentication → Email Templates → **Confirm sign up**.
+   - Subject: `Your Veylo verification code`
+   - Body must include `{{ .Token }}` (6-digit code). Do **not** rely on `{{ .ConfirmationURL }}` (opens Site URL / localhost and leaves the app).
+
+```html
+<h2>Confirm your Veylo account</h2>
+<p>Your verification code is:</p>
+<p style="font-size:24px;letter-spacing:4px"><strong>{{ .Token }}</strong></p>
+<p>Enter this code in the Veylo app. It expires in about an hour.</p>
+```
+
+The app verifies with `supabase.auth.verifyOtp({ type: 'signup' })` on `EmailVerificationScreen`.
+
+### RLS probe
+
+```bash
+SUPABASE_URL=... SUPABASE_ANON_KEY=... \
+RLS_PROBE_EMAIL_A=... RLS_PROBE_PASSWORD_A=... \
+RLS_PROBE_EMAIL_B=... RLS_PROBE_PASSWORD_B=... \
+node veylo_backend/scripts/rls-probe.mjs
+```
+
+Create two dedicated test users first. The script asserts cross-user isolation, storage prefix isolation, `user_stats` write lock, and revoked SECURITY DEFINER RPCs.
+
+### Deferred
+
+- Load testing (budget) — see root `TASKS.md`.
+- Server-side verification of `gamification-events` payloads (rate-limited only for now).
+- Moving `vector` / `pg_net` out of `public` schema (disruptive).

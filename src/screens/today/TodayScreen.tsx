@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -10,8 +11,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import Animated, {
+  FadeInDown,
+  FadeIn,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  interpolate,
+  Extrapolate,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 
 import {
   Screen,
@@ -24,6 +34,9 @@ import {
   ClothingTile,
 } from '../../components/common';
 import { OutfitFlatLay } from '../../components/OutfitFlatLay';
+import { OutfitFlatLaySkeleton } from '../../components/OutfitFlatLaySkeleton';
+import { PressableScale } from '../../components/PressableScale';
+import { ConfettiBurst } from '../../components/motion/ConfettiBurst';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
 import { useOutfitStore } from '../../store/useOutfitStore';
@@ -31,14 +44,19 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { useCalendarStore } from '../../store/useCalendarStore';
 import { weatherService } from '../../services/weatherService';
 import { useTabScreenPadding } from '../../hooks/useTabScreenPadding';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { ionIconName } from '../../utils/ionIcon';
+import { hapticService } from '../../utils/haptics';
+import { Fonts } from '../../theme/fonts';
 import type { TodayStackScreenProps } from '../../navigation/screenProps';
 import type { ClothingItem, OutfitEvent, WeatherData } from '../../types';
-import * as Location from 'expo-location';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 type Props = TodayStackScreenProps<'Today'>;
+
+type WeatherStatus = 'loading' | 'ready' | 'permission_denied' | 'unavailable';
 
 const OCCASION_CHIPS = [
   { id: 'casual', label: 'Casual', icon: 'cafe-outline' },
@@ -63,6 +81,7 @@ const formatDateLabel = (date: Date): string =>
 
 export const TodayScreen = ({ navigation }: Props) => {
   const tabPad = useTabScreenPadding();
+  const reducedMotion = useReducedMotion();
   const { currentTheme } = useThemeStore();
   const { items: wardrobeItems } = useWardrobeStore();
   const { user } = useAuthStore();
@@ -71,6 +90,8 @@ export const TodayScreen = ({ navigation }: Props) => {
     outfitVariations,
     isGenerating,
     generateOutfit,
+    generationError,
+    clearGenerationError,
     todayOccasion,
     setTodayOccasion,
     setGeneratedOutfit,
@@ -79,12 +100,35 @@ export const TodayScreen = ({ navigation }: Props) => {
   const calendar = useCalendarStore((s) => s.calendar);
 
   const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [weatherAttempted, setWeatherAttempted] = useState(false);
+  const [weatherStatus, setWeatherStatus] = useState<WeatherStatus>('loading');
   const [hasGeneratedThisSession, setHasGeneratedThisSession] = useState(false);
   const [hasLoggedToday, setHasLoggedToday] = useState(false);
   const [isLoggingWear, setIsLoggingWear] = useState(false);
+  const [showWearConfetti, setShowWearConfetti] = useState(false);
   const [swapSheetVisible, setSwapSheetVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+  const heroParallaxStyle = useAnimatedStyle(() => {
+    if (reducedMotion) {
+      return {};
+    }
+    return {
+      transform: [
+        {
+          translateY: interpolate(scrollY.value, [0, 180], [0, 36], Extrapolate.CLAMP),
+        },
+        {
+          scale: interpolate(scrollY.value, [-80, 0], [1.06, 1], Extrapolate.CLAMP),
+        },
+      ],
+    };
+  });
 
   const now = useMemo(() => new Date(), []);
   const greeting = greetingForHour(now.getHours());
@@ -96,10 +140,15 @@ export const TodayScreen = ({ navigation }: Props) => {
   }, [calendar.events, now]);
 
   const loadWeather = useCallback(async (): Promise<void> => {
+    setWeatherStatus('loading');
     try {
-      const { status } = await Location.getForegroundPermissionsAsync();
+      const { status, canAskAgain } = await Location.getForegroundPermissionsAsync();
       if (status !== 'granted') {
         setWeather(null);
+        setWeatherStatus('permission_denied');
+        // Preserve canAskAgain for the chip handler via a module-level isn't needed —
+        // request again on press; open settings if permanently denied.
+        void canAskAgain;
         return;
       }
       const loc = await Location.getCurrentPositionAsync({});
@@ -107,14 +156,39 @@ export const TodayScreen = ({ navigation }: Props) => {
         loc.coords.latitude,
         loc.coords.longitude
       );
+      if (!data) {
+        setWeather(null);
+        setWeatherStatus('unavailable');
+        return;
+      }
       setWeather(data);
+      setWeatherStatus('ready');
     } catch (err) {
       if (__DEV__) console.warn('[TodayScreen] loadWeather', err);
       setWeather(null);
-    } finally {
-      setWeatherAttempted(true);
+      setWeatherStatus('unavailable');
     }
   }, []);
+
+  const handleWeatherChipPress = useCallback(async () => {
+    if (weatherStatus === 'permission_denied') {
+      const current = await Location.getForegroundPermissionsAsync();
+      if (!current.canAskAgain && current.status !== 'granted') {
+        await Linking.openSettings();
+        return;
+      }
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        await loadWeather();
+      } else {
+        setWeatherStatus('permission_denied');
+      }
+      return;
+    }
+    if (weatherStatus === 'unavailable') {
+      await loadWeather();
+    }
+  }, [loadWeather, weatherStatus]);
 
   const rankedOutfits = useMemo(() => {
     const list = [generatedOutfit, ...outfitVariations].filter(
@@ -134,11 +208,12 @@ export const TodayScreen = ({ navigation }: Props) => {
   }, [loadWeather]);
 
   useEffect(() => {
-    if (!weatherAttempted || wardrobeItems.length === 0 || hasGeneratedThisSession) return;
+    if (weatherStatus === 'loading' || wardrobeItems.length === 0 || hasGeneratedThisSession)
+      return;
     setHasGeneratedThisSession(true);
     void generateOutfit({ occasion: todayOccasion, weather: weatherPayload });
   }, [
-    weatherAttempted,
+    weatherStatus,
     wardrobeItems.length,
     hasGeneratedThisSession,
     generateOutfit,
@@ -149,6 +224,7 @@ export const TodayScreen = ({ navigation }: Props) => {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      clearGenerationError();
       await Promise.all([
         loadWeather(),
         generateOutfit({ occasion: todayOccasion, weather: weatherPayload }),
@@ -156,7 +232,7 @@ export const TodayScreen = ({ navigation }: Props) => {
     } finally {
       setRefreshing(false);
     }
-  }, [generateOutfit, loadWeather, todayOccasion]);
+  }, [clearGenerationError, generateOutfit, loadWeather, todayOccasion, weatherPayload]);
 
   const handleWear = useCallback(async () => {
     if (!generatedOutfit || isLoggingWear) return;
@@ -164,13 +240,18 @@ export const TodayScreen = ({ navigation }: Props) => {
     try {
       await recordOutfitWear(generatedOutfit);
       setHasLoggedToday(true);
+      hapticService.success();
+      if (!reducedMotion) {
+        setShowWearConfetti(true);
+        setTimeout(() => setShowWearConfetti(false), 1400);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not log this outfit.';
       Alert.alert('Could not log wear', message);
     } finally {
       setIsLoggingWear(false);
     }
-  }, [generatedOutfit, isLoggingWear, recordOutfitWear]);
+  }, [generatedOutfit, isLoggingWear, recordOutfitWear, reducedMotion]);
 
   const handleSwap = useCallback(() => {
     if (!generatedOutfit) return;
@@ -178,32 +259,43 @@ export const TodayScreen = ({ navigation }: Props) => {
   }, [generatedOutfit]);
 
   const handleSwapItem = useCallback(
-    async (_item: ClothingItem) => {
+    async (item: ClothingItem) => {
       setSwapSheetVisible(false);
+      if (!generatedOutfit) return;
+      const lockedIds = generatedOutfit.items
+        .filter((piece) => piece.id !== item.id)
+        .map((piece) => piece.id);
       try {
-        await generateOutfit({ occasion: todayOccasion, weather: weatherPayload });
+        clearGenerationError();
+        await generateOutfit({
+          occasion: todayOccasion,
+          weather: weatherPayload,
+          mustIncludeItemIds: lockedIds,
+        });
         setHasLoggedToday(false);
       } catch (err) {
         if (__DEV__) console.warn('[TodayScreen] swap regenerate', err);
       }
     },
-    [generateOutfit, todayOccasion, weatherPayload]
+    [clearGenerationError, generateOutfit, generatedOutfit, todayOccasion, weatherPayload]
   );
 
   const handleGenerateAnother = useCallback(async () => {
+    clearGenerationError();
     try {
       await generateOutfit({ occasion: todayOccasion, weather: weatherPayload });
       setHasLoggedToday(false);
     } catch (err) {
       if (__DEV__) console.warn('[TodayScreen] regenerate', err);
     }
-  }, [generateOutfit, todayOccasion]);
+  }, [clearGenerationError, generateOutfit, todayOccasion, weatherPayload]);
 
   const handleOccasionSelect = useCallback(
     async (occasionId: string) => {
       setTodayOccasion(occasionId);
       setHasGeneratedThisSession(false);
       setHasLoggedToday(false);
+      clearGenerationError();
       try {
         await generateOutfit({ occasion: occasionId, weather: weatherPayload });
         setHasGeneratedThisSession(true);
@@ -211,12 +303,34 @@ export const TodayScreen = ({ navigation }: Props) => {
         if (__DEV__) console.warn('[TodayScreen] occasion regenerate', err);
       }
     },
-    [generateOutfit, setTodayOccasion, weatherPayload]
+    [clearGenerationError, generateOutfit, setTodayOccasion, weatherPayload]
   );
 
   const handleViewFullWardrobe = useCallback(() => {
     navigation.navigate('WardrobeHome');
   }, [navigation]);
+
+  const weatherChipLabel = useMemo(() => {
+    switch (weatherStatus) {
+      case 'loading':
+        return 'Loading weather…';
+      case 'ready':
+        return weather
+          ? `${weather.temperature}°C · ${weather.condition}`
+          : 'Weather unavailable · retry';
+      case 'permission_denied':
+        return 'Enable location for weather';
+      case 'unavailable':
+        return 'Weather unavailable · retry';
+      default: {
+        const _exhaustive: never = weatherStatus;
+        return _exhaustive;
+      }
+    }
+  }, [weather, weatherStatus]);
+
+  const weatherChipPressable =
+    weatherStatus === 'permission_denied' || weatherStatus === 'unavailable';
 
   if (wardrobeItems.length === 0) {
     return (
@@ -227,16 +341,17 @@ export const TodayScreen = ({ navigation }: Props) => {
         <Screen>
           <View style={{ padding: 24, paddingTop: 32 }}>
             <Typography
-              style={{ color: currentTheme.colors.textSecondary, fontSize: 14, fontWeight: '500' }}
+              weight="500"
+              style={{ color: currentTheme.colors.textSecondary, fontSize: 14 }}
             >
               {greeting}, {user?.name?.split(' ')[0] ?? 'there'}
             </Typography>
             <Typography
               variant="header"
+              weight="700"
               style={{
                 color: currentTheme.colors.text,
                 fontSize: 34,
-                fontWeight: '700',
                 marginTop: 4,
                 marginBottom: 8,
               }}
@@ -256,8 +371,11 @@ export const TodayScreen = ({ navigation }: Props) => {
       edges={['top']}
     >
       <Screen>
-        <ScrollView
+        {showWearConfetti ? <ConfettiBurst originY={220} /> : null}
+        <AnimatedScrollView
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           contentContainerStyle={{
             paddingHorizontal: 20,
             paddingTop: 16,
@@ -273,16 +391,17 @@ export const TodayScreen = ({ navigation }: Props) => {
         >
           <Animated.View entering={FadeInDown.duration(400)}>
             <Typography
-              style={{ color: currentTheme.colors.textSecondary, fontSize: 13, fontWeight: '500' }}
+              weight="500"
+              style={{ color: currentTheme.colors.textSecondary, fontSize: 13 }}
             >
               {greeting}, {user?.name?.split(' ')[0] ?? 'there'}
             </Typography>
             <Typography
               variant="header"
+              weight="700"
               style={{
                 color: currentTheme.colors.text,
                 fontSize: 34,
-                fontWeight: '700',
                 marginTop: 4,
               }}
             >
@@ -296,9 +415,8 @@ export const TodayScreen = ({ navigation }: Props) => {
           >
             <ContextChip
               icon="sunny-outline"
-              label={
-                weather ? `${weather.temperature}°F · ${weather.condition}` : 'Loading weather…'
-              }
+              label={weatherChipLabel}
+              onPress={weatherChipPressable ? handleWeatherChipPress : undefined}
             />
             {todaysEvent ? (
               <ContextChip icon="calendar-outline" label={todaysEvent.occasion ?? 'Event today'} />
@@ -324,6 +442,7 @@ export const TodayScreen = ({ navigation }: Props) => {
 
           <Animated.View entering={FadeInDown.duration(400).delay(180)} style={{ marginTop: 28 }}>
             <Typography
+              weight="500"
               style={{
                 color: currentTheme.colors.textSecondary,
                 fontSize: 12,
@@ -335,25 +454,55 @@ export const TodayScreen = ({ navigation }: Props) => {
               Today&apos;s look
             </Typography>
 
-            {isGenerating && !generatedOutfit ? (
-              <HeroPlaceholder theme={currentTheme} />
+            {generationError && !isGenerating ? (
+              <View
+                style={{
+                  borderRadius: 20,
+                  padding: 20,
+                  backgroundColor: currentTheme.colors.mutedSurface,
+                  borderWidth: 1,
+                  borderColor: currentTheme.colors.border,
+                  gap: 12,
+                }}
+              >
+                <Typography weight="700" style={{ color: currentTheme.colors.text, fontSize: 16 }}>
+                  Couldn&apos;t build a look
+                </Typography>
+                <Typography
+                  style={{ color: currentTheme.colors.textSecondary, fontSize: 14, lineHeight: 20 }}
+                >
+                  {generationError.message}
+                </Typography>
+                <SecondaryButton
+                  title="Try again"
+                  icon="refresh"
+                  onPress={handleGenerateAnother}
+                  accessibilityLabel="Try generating outfit again"
+                />
+              </View>
+            ) : isGenerating && !generatedOutfit ? (
+              <OutfitFlatLaySkeleton width={SCREEN_WIDTH - 40} itemCount={2} />
             ) : generatedOutfit ? (
               <View>
                 <Typography
+                  variant="header"
+                  weight="700"
                   style={{
                     color: currentTheme.colors.text,
                     fontSize: 24,
-                    fontWeight: '700',
                     marginBottom: 12,
                   }}
                 >
                   {generatedOutfit.occasion ?? 'Curated for today'}
                 </Typography>
-                <OutfitFlatLay items={generatedOutfit.items} width={SCREEN_WIDTH - 40} />
+                <Animated.View style={heroParallaxStyle}>
+                  <OutfitFlatLay items={generatedOutfit.items} width={SCREEN_WIDTH - 40} />
+                </Animated.View>
 
                 {generatedOutfit.fitReasoning && generatedOutfit.fitReasoning.length > 0 ? (
                   <View style={{ marginTop: 16, gap: 6 }}>
                     <Typography
+                      weight="500"
                       style={{
                         color: currentTheme.colors.textSecondary,
                         fontSize: 12,
@@ -377,6 +526,7 @@ export const TodayScreen = ({ navigation }: Props) => {
                 {rankedOutfits.length > 1 ? (
                   <View style={{ marginTop: 20 }}>
                     <Typography
+                      weight="500"
                       style={{
                         color: currentTheme.colors.textSecondary,
                         fontSize: 12,
@@ -392,14 +542,17 @@ export const TodayScreen = ({ navigation }: Props) => {
                         {rankedOutfits.map((look, index) => {
                           const isActive = look.id === generatedOutfit.id;
                           return (
-                            <Pressable
+                            <PressableScale
                               key={look.id}
                               onPress={() => setGeneratedOutfit(look)}
+                              haptic="selection"
                               accessibilityRole="button"
                               accessibilityState={{ selected: isActive }}
                               style={{
                                 paddingHorizontal: 14,
                                 paddingVertical: 10,
+                                minHeight: 44,
+                                justifyContent: 'center',
                                 borderRadius: 16,
                                 backgroundColor: isActive
                                   ? currentTheme.colors.primary
@@ -411,15 +564,17 @@ export const TodayScreen = ({ navigation }: Props) => {
                               }}
                             >
                               <Typography
+                                weight="600"
                                 style={{
                                   fontSize: 13,
-                                  fontWeight: '600',
-                                  color: isActive ? '#FFF' : currentTheme.colors.text,
+                                  color: isActive
+                                    ? currentTheme.colors.onPrimary
+                                    : currentTheme.colors.text,
                                 }}
                               >
                                 Look {index + 1}
                               </Typography>
-                            </Pressable>
+                            </PressableScale>
                           );
                         })}
                       </View>
@@ -428,7 +583,7 @@ export const TodayScreen = ({ navigation }: Props) => {
                 ) : null}
               </View>
             ) : (
-              <HeroPlaceholder theme={currentTheme} />
+              <OutfitFlatLaySkeleton width={SCREEN_WIDTH - 40} itemCount={2} />
             )}
           </Animated.View>
 
@@ -478,7 +633,7 @@ export const TodayScreen = ({ navigation }: Props) => {
               accessibilityLabel="View full wardrobe"
             />
           </Animated.View>
-        </ScrollView>
+        </AnimatedScrollView>
       </Screen>
 
       <Modal
@@ -506,21 +661,11 @@ export const TodayScreen = ({ navigation }: Props) => {
               maxHeight: '70%',
             }}
           >
-            <View
-              style={{
-                alignSelf: 'center',
-                width: 36,
-                height: 4,
-                borderRadius: 2,
-                backgroundColor: currentTheme.colors.border,
-                marginBottom: 16,
-              }}
-            />
             <Typography
+              weight="700"
               style={{
                 color: currentTheme.colors.text,
                 fontSize: 20,
-                fontWeight: '700',
                 marginBottom: 4,
               }}
             >
@@ -567,28 +712,40 @@ export const TodayScreen = ({ navigation }: Props) => {
 interface ContextChipProps {
   icon: string;
   label: string;
+  onPress?: () => void;
 }
 
-const ContextChip = ({ icon, label }: ContextChipProps) => {
+const ContextChip = ({ icon, label, onPress }: ContextChipProps) => {
   const { currentTheme } = useThemeStore();
+  const content = (
+    <StyledView
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        minHeight: 44,
+        borderRadius: 18,
+        backgroundColor: currentTheme.colors.mutedSurface,
+        gap: 6,
+      }}
+    >
+      <Ionicons name={ionIconName(icon)} size={14} color={currentTheme.colors.primary} />
+      <Typography weight="600" style={{ color: currentTheme.colors.text, fontSize: 12 }}>
+        {label}
+      </Typography>
+    </StyledView>
+  );
+
+  if (!onPress) {
+    return <Animated.View entering={FadeIn.duration(300)}>{content}</Animated.View>;
+  }
+
   return (
     <Animated.View entering={FadeIn.duration(300)}>
-      <StyledView
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          borderRadius: 18,
-          backgroundColor: currentTheme.colors.mutedSurface,
-          gap: 6,
-        }}
-      >
-        <Ionicons name={ionIconName(icon)} size={14} color={currentTheme.colors.primary} />
-        <Typography style={{ color: currentTheme.colors.text, fontSize: 12, fontWeight: '600' }}>
-          {label}
-        </Typography>
-      </StyledView>
+      <PressableScale onPress={onPress} haptic="selection" accessibilityRole="button">
+        {content}
+      </PressableScale>
     </Animated.View>
   );
 };
@@ -604,8 +761,9 @@ interface OccasionChipProps {
 const OccasionChip = ({ id, label, icon, selected, onPress }: OccasionChipProps) => {
   const { currentTheme } = useThemeStore();
   return (
-    <Pressable
+    <PressableScale
       onPress={() => onPress(id)}
+      haptic="selection"
       accessibilityRole="button"
       accessibilityState={{ selected }}
       style={{
@@ -613,7 +771,8 @@ const OccasionChip = ({ id, label, icon, selected, onPress }: OccasionChipProps)
         alignItems: 'center',
         gap: 5,
         paddingHorizontal: 14,
-        paddingVertical: 8,
+        paddingVertical: 10,
+        minHeight: 44,
         borderRadius: 20,
         backgroundColor: selected ? currentTheme.colors.primary : currentTheme.colors.mutedSurface,
         borderWidth: 1.5,
@@ -623,45 +782,18 @@ const OccasionChip = ({ id, label, icon, selected, onPress }: OccasionChipProps)
       <Ionicons
         name={ionIconName(icon)}
         size={13}
-        color={selected ? '#FFF' : currentTheme.colors.textSecondary}
+        color={selected ? currentTheme.colors.onPrimary : currentTheme.colors.textSecondary}
       />
       <Typography
+        weight="600"
         style={{
           fontSize: 12,
-          fontWeight: '600',
-          color: selected ? '#FFF' : currentTheme.colors.text,
+          fontFamily: Fonts.bodySemiBold,
+          color: selected ? currentTheme.colors.onPrimary : currentTheme.colors.text,
         }}
       >
         {label}
       </Typography>
-    </Pressable>
+    </PressableScale>
   );
 };
-
-const HeroPlaceholder = ({
-  theme,
-}: {
-  theme: ReturnType<typeof useThemeStore.getState>['currentTheme'];
-}) => (
-  <View
-    style={{
-      width: SCREEN_WIDTH - 40,
-      height: (SCREEN_WIDTH - 40) * 1.1,
-      borderRadius: 24,
-      backgroundColor: theme.colors.mutedSurface,
-      alignItems: 'center',
-      justifyContent: 'center',
-    }}
-  >
-    <Ionicons name={ionIconName('sparkles-outline')} size={36} color={theme.colors.iconMuted} />
-    <Typography
-      style={{
-        marginTop: 12,
-        color: theme.colors.textSecondary,
-        fontSize: 13,
-      }}
-    >
-      Putting together a look…
-    </Typography>
-  </View>
-);

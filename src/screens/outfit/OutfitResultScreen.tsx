@@ -1,5 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, TouchableOpacity, Dimensions, Share, Alert } from 'react-native';
+import {
+  View,
+  ScrollView,
+  TouchableOpacity,
+  Dimensions,
+  Share,
+  Alert,
+  Platform,
+} from 'react-native';
 import { Image } from 'expo-image';
 import Animated, {
   useSharedValue,
@@ -193,7 +201,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
     <Screen className="bg-background">
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: 160 }}
       >
         {/* Header */}
         <LinearGradient
@@ -400,7 +408,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
           left: 0,
           right: 0,
           paddingHorizontal: 24,
-          paddingBottom: 40,
+          paddingBottom: Platform.OS === 'ios' ? 48 : 40,
           paddingTop: 40,
         }}
       >

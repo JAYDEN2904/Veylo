@@ -8,6 +8,7 @@ import {
   type StyleProp,
   type TextInputProps,
   type TextProps,
+  type TextStyle,
   type TouchableOpacityProps,
   type ViewProps,
   type ViewStyle,
@@ -17,6 +18,7 @@ import { styled } from 'nativewind';
 import { twMerge } from 'tailwind-merge';
 
 import { theme } from '../theme';
+import { Fonts, frauncesForWeight, interForWeight } from '../theme/fonts';
 
 const StyledText = styled(Text);
 const StyledTextInput = styled(TextInput);
@@ -39,17 +41,56 @@ export function Screen({ children, className, style, ...rest }: ScreenProps) {
 
 export type TypographyProps = TextProps & {
   variant?: 'header' | 'body' | 'secondary';
+  /** Explicit weight token — maps to the matching Inter/Fraunces file. */
+  weight?: '400' | '500' | '600' | '700' | '800';
   className?: string;
 };
 
-export function Typography({ variant = 'body', className, style, ...rest }: TypographyProps) {
+function resolveTypographyFont(
+  variant: 'header' | 'body' | 'secondary',
+  weight: TypographyProps['weight'] | undefined,
+  styleFontWeight: TextStyle['fontWeight'] | undefined
+): { fontFamily: string; fontWeight: TextStyle['fontWeight'] } {
+  const resolvedWeight =
+    weight ?? (typeof styleFontWeight === 'string' ? styleFontWeight : undefined);
+  if (variant === 'header') {
+    return {
+      fontFamily: frauncesForWeight(resolvedWeight ?? '700'),
+      // Loaded faces already encode weight; keep RN from trying to synthesize.
+      fontWeight: '400',
+    };
+  }
+  return {
+    fontFamily: interForWeight(resolvedWeight ?? (variant === 'secondary' ? '400' : '400')),
+    fontWeight: '400',
+  };
+}
+
+export function Typography({
+  variant = 'body',
+  weight,
+  className,
+  style,
+  ...rest
+}: TypographyProps) {
+  const flat = (Array.isArray(style) ? Object.assign({}, ...style.flat(2)) : style) as
+    | TextStyle
+    | undefined;
+  const mapped = resolveTypographyFont(variant, weight, flat?.fontWeight);
   const variantClass =
     variant === 'header'
       ? 'font-bold text-primary'
       : variant === 'secondary'
         ? 'text-gray-500'
         : '';
-  return <StyledText className={twMerge(variantClass, className)} style={style} {...rest} />;
+
+  return (
+    <StyledText
+      className={twMerge(variantClass, className)}
+      style={[{ fontFamily: mapped.fontFamily, fontWeight: mapped.fontWeight }, style]}
+      {...rest}
+    />
+  );
 }
 
 export type ButtonProps = TouchableOpacityProps & {
@@ -112,7 +153,12 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={spinnerColor} />
       ) : (
-        <StyledText className={titleClass}>{title}</StyledText>
+        <StyledText
+          className={titleClass}
+          style={{ fontFamily: Fonts.bodySemiBold, fontWeight: '400' }}
+        >
+          {title}
+        </StyledText>
       )}
     </StyledTouchableOpacity>
   );
@@ -133,10 +179,24 @@ export function Input({ label, error, className, ...rest }: InputProps) {
   return (
     <StyledView className={twMerge('w-full', className)}>
       {label ? (
-        <StyledText className="text-sm font-medium text-gray-700 mb-2">{label}</StyledText>
+        <StyledText
+          className="text-sm font-medium text-gray-700 mb-2"
+          style={{ fontFamily: Fonts.bodyMedium, fontWeight: '400' }}
+        >
+          {label}
+        </StyledText>
       ) : null}
-      <StyledTextInput className={inputClass} placeholderTextColor="#9CA3AF" {...rest} />
-      {error ? <StyledText className="text-error text-sm mt-1">{error}</StyledText> : null}
+      <StyledTextInput
+        className={inputClass}
+        placeholderTextColor="#9CA3AF"
+        style={{ fontFamily: Fonts.bodyRegular }}
+        {...rest}
+      />
+      {error ? (
+        <StyledText className="text-error text-sm mt-1" style={{ fontFamily: Fonts.bodyRegular }}>
+          {error}
+        </StyledText>
+      ) : null}
     </StyledView>
   );
 }

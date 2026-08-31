@@ -3,6 +3,7 @@ import { Modal, Pressable, View, Platform } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from './common';
+import { PressableScale } from './PressableScale';
 import { useThemeStore } from '../store/useThemeStore';
 import { usePendingRatingStore, type WearRatingOutcome } from '../store/usePendingRatingStore';
 
@@ -138,8 +139,9 @@ export const PostWearRatingSheet = ({ visible, onDismiss }: Props) => {
             {OUTCOMES.map((outcome) => {
               const isSelected = selected.has(outcome.id);
               return (
-                <Pressable
+                <PressableScale
                   key={outcome.id}
+                  haptic="selection"
                   onPress={() => toggleOutcome(outcome.id)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: isSelected }}
@@ -173,7 +175,11 @@ export const PostWearRatingSheet = ({ visible, onDismiss }: Props) => {
                     <Ionicons
                       name={outcome.icon as any}
                       size={22}
-                      color={isSelected ? '#FFF' : currentTheme.colors.textSecondary}
+                      color={
+                        isSelected
+                          ? currentTheme.colors.onPrimary
+                          : currentTheme.colors.textSecondary
+                      }
                     />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -203,7 +209,7 @@ export const PostWearRatingSheet = ({ visible, onDismiss }: Props) => {
                       color={currentTheme.colors.primary}
                     />
                   )}
-                </Pressable>
+                </PressableScale>
               );
             })}
           </View>
@@ -220,7 +226,9 @@ export const PostWearRatingSheet = ({ visible, onDismiss }: Props) => {
               marginBottom: 10,
             }}
           >
-            <Typography style={{ color: '#FFF', fontSize: 16, fontWeight: '700' }}>
+            <Typography
+              style={{ color: currentTheme.colors.onPrimary, fontSize: 16, fontWeight: '700' }}
+            >
               {submitting ? 'Saving…' : selected.size > 0 ? 'Save feedback' : 'None of the above'}
             </Typography>
           </Pressable>

@@ -17,8 +17,9 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { getServiceClient } from '../_shared/supabase.ts';
+import { guardEndpoint } from '../_shared/endpointGuard.ts';
 
-const BUCKETS = ['item-photos', 'avatars', 'tryon-results'] as const;
+const BUCKETS = ['item-photos', 'avatars', 'tryon-results', 'feed-photos'] as const;
 
 async function purgeBucket(
   service: ReturnType<typeof getServiceClient>,
@@ -55,6 +56,12 @@ Deno.serve(async (req) => {
   const { user } = ctx;
 
   const service = getServiceClient();
+  const blocked = await guardEndpoint(req, service, {
+    functionName: 'delete-account',
+    userId: user.id,
+    tier: 'light',
+  });
+  if (blocked) return blocked;
 
   await service.from('account_deletion_requests').upsert(
     {

@@ -6,6 +6,7 @@ import { clearSessionToken, setSessionToken } from '../services/sessionTokenStor
 import {
   signInWithEmail,
   signUpWithEmail,
+  verifySignupOtp as verifySignupOtpService,
   signOut as supabaseSignOut,
   signInWithGoogle,
   signInWithApple,
@@ -56,8 +57,9 @@ const flushOnboardingAnswers = async (userId: string): Promise<void> => {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
+      pendingVerifiedUser: null,
       isAuthenticated: false,
       isLoading: false,
       login: async (email, password) => {
@@ -103,6 +105,37 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: false, user: null, isAuthenticated: false });
           throw err;
         }
+      },
+      verifySignupOtp: async (email, token) => {
+        set({ isLoading: true });
+        try {
+          const { user, accessToken } = await verifySignupOtpService(email, token);
+          if (accessToken) {
+            await setSessionToken(accessToken);
+          }
+          // Keep Auth stack mounted for the celebration screen — do not flip isAuthenticated yet.
+          resetUserStores();
+          set({
+            pendingVerifiedUser: user,
+            isAuthenticated: false,
+            isLoading: false,
+            user: null,
+          });
+        } catch (err) {
+          set({ isLoading: false });
+          throw err;
+        }
+      },
+      completePendingAuth: async () => {
+        const pending = get().pendingVerifiedUser;
+        if (!pending) return;
+        set({
+          user: pending,
+          pendingVerifiedUser: null,
+          isAuthenticated: true,
+        });
+        void flushOnboardingAnswers(pending.id);
+        onAuthenticated();
       },
       loginWithGoogle: async () => {
         set({ isLoading: true });
@@ -152,7 +185,7 @@ export const useAuthStore = create<AuthState>()(
         await supabaseSignOut();
         await clearSessionToken();
         resetUserStores();
-        set({ user: null, isAuthenticated: false });
+        set({ user: null, pendingVerifiedUser: null, isAuthenticated: false });
       },
       updateUser: async (updates) => {
         set((state) => ({

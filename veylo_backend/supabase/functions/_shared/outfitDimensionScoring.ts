@@ -1,16 +1,28 @@
 /** Locked MVP weights — mirrored from src/services/outfitDimensionScoring.ts */
 
+import {
+  buildOccasionAwareReasoning,
+  getOccasionProfile,
+  isBannedForOccasion,
+  isGenderCoherentWithPicked,
+  scoreOccasionFit,
+  type OccasionProfile,
+} from './occasionProfiles.ts';
+import type { GenderAffinity } from './itemMetadata.ts';
+
 export const DIMENSION_WEIGHTS = {
-  colourHarmony: 0.3,
-  formality: 0.25,
-  weather: 0.2,
-  styleProfile: 0.15,
+  colourHarmony: 0.25,
+  formality: 0.2,
+  occasionFit: 0.2,
+  weather: 0.15,
+  styleProfile: 0.1,
   wearDiversity: 0.1,
 } as const;
 
 export interface DimensionScores {
   colourHarmony: number;
   formality: number;
+  occasionFit: number;
   weather: number;
   styleProfile: number;
   wearDiversity: number;
@@ -26,6 +38,8 @@ export interface ScoringItem {
   formality_score?: number | null;
   worn_count?: number | null;
   last_worn?: string | null;
+  gender_affinity?: GenderAffinity | null;
+  occasion_tags?: string[] | null;
 }
 
 export interface WeatherInput {
@@ -140,11 +154,12 @@ function scoreWeatherItem(item: ScoringItem, weather?: WeatherInput | null): num
   const category = item.category.toLowerCase();
   const tags = (item.tags ?? []).map((t) => t.toLowerCase());
 
-  if (temp >= 75) {
+  // Temperature thresholds are Celsius (canonical).
+  if (temp >= 24) {
     if (category.includes('outerwear') && !tags.some((t) => t.includes('light'))) return 25;
     if (tags.some((t) => t.includes('warm') || t.includes('wool') || t.includes('heavy')))
       return 25;
-  } else if (temp < 50) {
+  } else if (temp < 10) {
     if (category.includes('shorts')) return 20;
   }
   if (condition.includes('rain') && !tags.some((t) => t.includes('waterproof'))) return 40;
@@ -174,6 +189,10 @@ function scoreWear(item: ScoringItem): number {
   return Math.max(0, Math.min(100, score));
 }
 
+function resolveProfile(occasion?: string): OccasionProfile | null {
+  return getOccasionProfile(occasion);
+}
+
 export function scoreItemComposite(
   item: ScoringItem,
   picked: ScoringItem[],
@@ -181,10 +200,17 @@ export function scoreItemComposite(
   weather?: WeatherInput | null,
   occasion?: string
 ): number {
+  const profile = resolveProfile(occasion);
+
+  // Hard gates — banned / gender clash → near-zero so greedy pick skips them
+  if (profile && isBannedForOccasion(item, profile)) return 5;
+  if (!isGenderCoherentWithPicked(item, picked)) return 5;
+
   const hasWeather = Boolean(weather);
   const d: DimensionScores = {
     colourHarmony: scoreColour(item, picked),
     formality: scoreFormality(item, picked, occasion),
+    occasionFit: profile ? scoreOccasionFit(item, profile) : 70,
     weather: scoreWeatherItem(item, weather),
     styleProfile: scoreStyle(item, styleTerms),
     wearDiversity: scoreWear(item),
@@ -193,9 +219,10 @@ export function scoreItemComposite(
   let total =
     d.colourHarmony * w.colourHarmony +
     d.formality * w.formality +
+    d.occasionFit * w.occasionFit +
     d.styleProfile * w.styleProfile +
     d.wearDiversity * w.wearDiversity;
-  let weightSum = w.colourHarmony + w.formality + w.styleProfile + w.wearDiversity;
+  let weightSum = w.colourHarmony + w.formality + w.occasionFit + w.styleProfile + w.wearDiversity;
   if (hasWeather) {
     total += d.weather * w.weather;
     weightSum += w.weather;
@@ -223,25 +250,27 @@ export function buildOutfitReasoning(
   weather?: WeatherInput | null,
   occasion?: string
 ): string[] {
-  const lines: string[] = [];
   if (items.length === 0) return ['No items in outfit.'];
 
+  const profile = resolveProfile(occasion);
   const avgColour =
     items.reduce((s, it, i) => s + scoreColour(it, items.slice(0, i)), 0) / items.length;
-  const avgFormality =
-    items.reduce((s, it, i) => s + scoreFormality(it, items.slice(0, i), occasion), 0) /
-    items.length;
   const avgWeather = weather
     ? items.reduce((s, it) => s + scoreWeatherItem(it, weather), 0) / items.length
     : 0;
-  const avgStyle = items.reduce((s, it) => s + scoreStyle(it, styleTerms), 0) / items.length;
   const avgWear = items.reduce((s, it) => s + scoreWear(it), 0) / items.length;
 
-  if (avgColour >= 85) lines.push('Colours balance well together.');
-  if (avgFormality >= 85) lines.push('Formality levels match across pieces.');
-  if (weather && avgWeather >= 85) lines.push('Well suited to today’s weather.');
-  if (avgStyle >= 80) lines.push('Aligns with your style profile.');
-  if (avgWear >= 80) lines.push('Includes pieces you have not worn recently.');
-  if (lines.length === 0) lines.push('A balanced look from your wardrobe.');
-  return lines;
+  const lines = buildOccasionAwareReasoning(items, profile, {
+    colourOk: avgColour >= 80,
+    weatherOk: Boolean(weather) && avgWeather >= 80,
+    wearFresh: avgWear >= 85,
+  });
+
+  // Keep a style line only when it clearly applies — avoid generic filler alone
+  const avgStyle = items.reduce((s, it) => s + scoreStyle(it, styleTerms), 0) / items.length;
+  if (avgStyle >= 85 && styleTerms.length > 0) {
+    lines.push('Matches the style preferences you set.');
+  }
+
+  return lines.slice(0, 3);
 }

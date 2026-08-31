@@ -12,6 +12,12 @@ import {
 import { withNormalizedCategories, normalizeCategory } from './outfitCategoryNormalize';
 import { scoreItemForSlot, ScoreContext } from './outfitScoring';
 import { scoreOutfitDimensions, clothingItemToScoringInput } from './outfitDimensionScoring';
+import {
+  filterItemsForOccasion,
+  getOccasionProfile,
+  isBannedForOccasion,
+} from '../utils/occasionProfiles';
+import { deriveGenderAffinity, deriveOccasionTags } from '../utils/itemMetadata';
 
 export interface OutfitGenerationContext {
   /** Canonical occasion key, e.g. Casual, Work — set by store from flow id */
@@ -152,11 +158,65 @@ function buildStyleBoostTerms(context: OutfitGenerationContext): string[] {
 }
 
 function applyOccasionFilter(items: ClothingItem[], occasionKey: string): ClothingItem[] {
-  const tags = OCCASION_TAG_KEYWORDS[occasionKey];
-  if (!tags?.length) return items;
-  return items.filter((item) =>
-    item.tags.some((tag) => tags.some((kw) => tag.toLowerCase().includes(kw.toLowerCase())))
+  const profile = getOccasionProfile(occasionKey);
+  if (!profile) {
+    const tags = OCCASION_TAG_KEYWORDS[occasionKey];
+    if (!tags?.length) return items;
+    return items.filter((item) =>
+      item.tags.some((tag) => tags.some((kw) => tag.toLowerCase().includes(kw.toLowerCase())))
+    );
+  }
+
+  const enriched = items.map((item) => ({
+    ...item,
+    genderAffinity:
+      item.genderAffinity ??
+      deriveGenderAffinity({
+        category: item.category,
+        subCategory: item.subCategory,
+        styleTags: item.tags,
+      }),
+    occasionTags:
+      item.occasionTags && item.occasionTags.length > 0
+        ? item.occasionTags
+        : deriveOccasionTags({
+            category: item.category,
+            subCategory: item.subCategory,
+            styleTags: item.tags,
+            formalityScore: item.formalityScore,
+          }),
+  }));
+
+  const filtered = filterItemsForOccasion(
+    enriched.map((item) => ({
+      id: item.id,
+      category: item.category,
+      subCategory: item.subCategory,
+      colors: item.colors,
+      tags: item.tags,
+      occasionTags: item.occasionTags,
+      formalityScore: item.formalityScore,
+      genderAffinity: item.genderAffinity,
+    })),
+    profile,
+    { hardBan: true }
   );
+  const allowedIds = new Set(filtered.map((f) => f.id));
+  return enriched.filter((item) => {
+    if (!allowedIds.has(item.id)) return false;
+    return !isBannedForOccasion(
+      {
+        id: item.id,
+        category: item.category,
+        subCategory: item.subCategory,
+        tags: item.tags,
+        occasionTags: item.occasionTags,
+        formalityScore: item.formalityScore,
+        genderAffinity: item.genderAffinity,
+      },
+      profile
+    );
+  });
 }
 
 function filterPipeline(
@@ -230,7 +290,7 @@ function pickBestInCategory(
 
 function prefersDressPath(occasionKey?: string): boolean {
   if (!occasionKey) return false;
-  return ['Formal', 'Date Night', 'Party'].includes(occasionKey);
+  return getOccasionProfile(occasionKey)?.preferDress ?? false;
 }
 
 function buildScoreContext(context: OutfitGenerationContext): ScoreContext {

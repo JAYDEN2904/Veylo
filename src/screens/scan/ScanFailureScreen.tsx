@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, TouchableOpacity } from 'react-native';
+import { ScrollView } from 'react-native';
 import Animated, {
   FadeIn,
   useSharedValue,
@@ -7,12 +7,19 @@ import Animated, {
   withSpring,
   withSequence,
 } from 'react-native-reanimated';
-import { Screen, Typography, Button, StyledView } from '../../components/common';
-import { theme } from '../../theme';
+import {
+  Screen,
+  Typography,
+  PrimaryButton,
+  GhostButton,
+  StyledView,
+} from '../../components/common';
+import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export const ScanFailureScreen = ({ navigation, route }: any) => {
+  const { currentTheme } = useThemeStore();
   const error = route.params?.error || 'Unable to process image';
   const scale = useSharedValue(0);
 
@@ -47,7 +54,7 @@ export const ScanFailureScreen = ({ navigation, route }: any) => {
               shadowRadius: 16,
             }}
           >
-            <Ionicons name="close-circle" size={64} color="#FFF" />
+            <Ionicons name="close-circle" size={64} color={currentTheme.colors.onPrimary} />
           </LinearGradient>
 
           <Typography
@@ -57,10 +64,16 @@ export const ScanFailureScreen = ({ navigation, route }: any) => {
           >
             Scan Failed
           </Typography>
-          <Typography className="text-gray-500 text-center text-base mb-2 leading-6 px-4">
+          <Typography
+            className="text-center text-base mb-2 leading-6 px-4"
+            style={{ color: currentTheme.colors.textSecondary }}
+          >
             {error}
           </Typography>
-          <Typography className="text-gray-400 text-center text-sm mb-12">
+          <Typography
+            className="text-center text-sm mb-12"
+            style={{ color: currentTheme.colors.textSecondary }}
+          >
             Please try again with better lighting or a clearer image.
           </Typography>
 
@@ -78,15 +91,15 @@ export const ScanFailureScreen = ({ navigation, route }: any) => {
                   alignItems: 'center',
                   padding: 16,
                   borderRadius: 16,
-                  backgroundColor: theme.colors.surface,
+                  backgroundColor: currentTheme.colors.surface,
                   borderWidth: 1,
-                  borderColor: theme.colors.border,
+                  borderColor: currentTheme.colors.border,
                 }}
               >
                 <Ionicons
                   name={tip.icon as any}
                   size={24}
-                  color={theme.colors.accent}
+                  color={currentTheme.colors.accent}
                   style={{ marginRight: 12 }}
                 />
                 <Typography className="text-base text-primary">{tip.text}</Typography>
@@ -96,12 +109,13 @@ export const ScanFailureScreen = ({ navigation, route }: any) => {
 
           {/* Action Buttons */}
           <StyledView style={{ width: '100%', gap: 12 }}>
-            <Button
+            <PrimaryButton
               title="Try Again"
               onPress={() => navigation.navigate('LiveCameraScan')}
-              className="shadow-lg shadow-red-500/20"
             />
-            <TouchableOpacity
+            <GhostButton
+              title="Cancel"
+              fullWidth
               onPress={() => {
                 const parent = navigation.getParent?.();
                 if (parent) {
@@ -110,13 +124,7 @@ export const ScanFailureScreen = ({ navigation, route }: any) => {
                   navigation.goBack();
                 }
               }}
-              style={{
-                padding: 16,
-                alignItems: 'center',
-              }}
-            >
-              <Typography className="text-gray-500 font-semibold">Cancel</Typography>
-            </TouchableOpacity>
+            />
           </StyledView>
         </Animated.View>
       </ScrollView>
