@@ -1,6 +1,6 @@
 import type { ClothingItem, OutfitGenerationFailure, WeatherData } from '../../types';
 
-export const ENGINE_VERSION = '2.0.1';
+export const ENGINE_VERSION = '2.1.0';
 
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening';
 
@@ -53,9 +53,32 @@ export interface RecommendationRequest {
   count?: number;
 }
 
+export interface RankingWeights {
+  compatibility: number;
+  personalization: number;
+  occasionFit: number;
+  weatherFit: number;
+  colourHarmony: number;
+  formality: number;
+  wearDiversity: number;
+  novelty: number;
+}
+
+export const DEFAULT_RANKING_WEIGHTS: RankingWeights = {
+  compatibility: 0.25,
+  personalization: 0.2,
+  occasionFit: 0.15,
+  weatherFit: 0.15,
+  colourHarmony: 0.1,
+  formality: 0.05,
+  wearDiversity: 0.05,
+  novelty: 0.05,
+};
+
 export interface RecommendEngineOptions {
   candidateLimits?: Partial<CandidateLimits>;
   maxComposed?: number;
+  weights?: Partial<RankingWeights>;
 }
 
 export interface OutfitScoreBreakdown {
@@ -66,7 +89,9 @@ export interface OutfitScoreBreakdown {
   weatherFit: number;
   styleMatch: number;
   wearDiversity: number;
+  /** Cold-start style match until Sprint 3. */
   personalization: number;
+  /** Wear freshness until Sprint 5 set-level novelty. */
   novelty: number;
   overall: number;
 }
