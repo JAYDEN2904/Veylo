@@ -1,6 +1,6 @@
 import type { ClothingItem, OutfitGenerationFailure, WeatherData } from '../../types';
 
-export const ENGINE_VERSION = '2.1.0';
+export const ENGINE_VERSION = '2.2.0';
 
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening';
 
@@ -38,6 +38,28 @@ export const DEFAULT_CANDIDATE_LIMITS: CandidateLimits = {
   Dresses: 6,
 };
 
+export type RecommendationEventType =
+  | 'impression'
+  | 'view'
+  | 'like'
+  | 'dislike'
+  | 'save'
+  | 'swap'
+  | 'remove'
+  | 'wear'
+  | 'share'
+  | 'try_on'
+  | 'dismiss';
+
+export interface UserPreferenceVector {
+  colors: Record<string, number>;
+  categories: Record<string, number>;
+  styles: Record<string, number>;
+  occasions: Record<string, number>;
+  brands: Record<string, number>;
+  updatedAt: string;
+}
+
 export interface RecommendationRequest {
   userId?: string;
   occasion?: string;
@@ -51,6 +73,11 @@ export interface RecommendationRequest {
   mustIncludeItemIds?: string[];
   excludeItemIds?: string[];
   count?: number;
+  /**
+   * Precomputed local preference vector. Never fetched inside recommendOutfits.
+   * Missing or empty → cold-start style match.
+   */
+  preferenceVector?: UserPreferenceVector;
 }
 
 export interface RankingWeights {
@@ -89,7 +116,7 @@ export interface OutfitScoreBreakdown {
   weatherFit: number;
   styleMatch: number;
   wearDiversity: number;
-  /** Cold-start style match until Sprint 3. */
+  /** Onboarding style match, plus behavioral affinity when a vector is present. */
   personalization: number;
   /** Wear freshness until Sprint 5 set-level novelty. */
   novelty: number;

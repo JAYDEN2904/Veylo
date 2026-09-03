@@ -14,7 +14,7 @@ const STYLE_FAMILIES: Record<string, string[]> = {
   bold: ['bold', 'statement', 'graphic'],
 };
 
-function familiesFor(item: ClothingItem): string[] {
+export function styleFamiliesForItem(item: ClothingItem): string[] {
   const blob = [...item.tags, item.subCategory ?? ''].join(' ').toLowerCase();
   return Object.entries(STYLE_FAMILIES)
     .filter(([, tokens]) => tokens.some((token) => blob.includes(token)))
@@ -29,7 +29,7 @@ export function scoreOutfitStyleCoherence(items: ClothingItem[]): number {
   if (items.length === 0) return 70;
   const familyHits: Record<string, number> = {};
   for (const item of items) {
-    const unique = new Set(familiesFor(item));
+    const unique = new Set(styleFamiliesForItem(item));
     for (const family of unique) {
       familyHits[family] = (familyHits[family] ?? 0) + 1;
     }

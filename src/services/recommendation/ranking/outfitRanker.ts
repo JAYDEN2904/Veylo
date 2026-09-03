@@ -8,6 +8,7 @@ import { scoreOutfitCompatibility } from '../compatibility/compatibilityEngine';
 import { scoreOutfitOccasion } from '../compatibility/occasionCompatibility';
 import { scoreOutfitWeather } from '../compatibility/weatherCompatibility';
 import { scoreOutfitStyleMatch } from '../compatibility/styleCompatibility';
+import { scorePersonalization } from './personalizationRanker';
 import { resolveRankingWeights, weightedOverall } from '../rankingWeights';
 import type {
   OutfitScoreBreakdown,
@@ -48,8 +49,7 @@ export function scoreCompleteOutfit(
     weatherFit,
     styleMatch,
     wearDiversity,
-    // Cold-start only until Sprint 3 behavioral preferences exist.
-    personalization: styleMatch,
+    personalization: scorePersonalization(items, request),
     // Wear freshness only until Sprint 5 set-level novelty exists.
     novelty: wearDiversity,
     overall: 0,
@@ -75,6 +75,9 @@ export function scoreCompleteOutfit(
 
 function inferReasonType(text: string): RecommendationReasonType {
   const lower = text.toLowerCase();
+  if (lower.includes('keep choosing') || lower.includes('you keep')) {
+    return 'personalization';
+  }
   if (lower.includes('weather') || lower.includes('warm') || lower.includes('cold')) {
     return 'weather';
   }
@@ -106,6 +109,9 @@ export function reasonsFromBreakdown(breakdown: OutfitScoreBreakdown): Recommend
   }
   if (breakdown.wearDiversity >= 85) {
     lines.push('Gives under-worn pieces a turn.');
+  }
+  if (breakdown.personalization >= breakdown.styleMatch + 6) {
+    lines.push('Matches colours and styles you keep choosing.');
   }
   if (lines.length === 0) {
     lines.push('A balanced look pulled from your wardrobe.');

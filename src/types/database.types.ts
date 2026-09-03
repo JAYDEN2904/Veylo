@@ -64,6 +64,42 @@ export interface Database {
         Insert: Record<string, Json | string | null | undefined>;
         Update: Record<string, Json | string | null | undefined>;
       };
+      recommendation_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          request_context: Json;
+          occasion: string | null;
+          weather: Json | null;
+          style_context: Json | null;
+          engine_version: string;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['recommendation_sessions']['Row']> & {
+          user_id: string;
+          engine_version: string;
+        };
+        Update: Partial<Database['public']['Tables']['recommendation_sessions']['Row']>;
+      };
+      recommendation_events: {
+        Row: {
+          id: string;
+          session_id: string | null;
+          user_id: string;
+          recommendation_id: string | null;
+          outfit_id: string | null;
+          event_type: string;
+          item_id: string | null;
+          position: number | null;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['recommendation_events']['Row']> & {
+          user_id: string;
+          event_type: string;
+        };
+        Update: Partial<Database['public']['Tables']['recommendation_events']['Row']>;
+      };
       scan_queue: {
         Row: Record<string, string | null>;
         Insert: Record<string, string | null | undefined>;

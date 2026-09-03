@@ -19,6 +19,7 @@ import { useOutfitStore } from './useOutfitStore';
 import { useWardrobeStore } from './useWardrobeStore';
 import { useOnboardingStore } from './useOnboardingStore';
 import { useStyleStore } from './useStyleStore';
+import { usePreferenceStore } from './usePreferenceStore';
 import { upsertStyleProfile } from '../services/styleProfileService';
 
 const DAILY_REMINDER_TIME = '07:30';
@@ -30,6 +31,7 @@ const onAuthenticated = (): void => {
 
 const resetUserStores = (): void => {
   useOutfitStore.getState().reset();
+  usePreferenceStore.getState().reset();
   (useWardrobeStore.getState() as unknown as { reset?: () => void }).reset?.();
 };
 

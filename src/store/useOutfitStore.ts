@@ -29,6 +29,12 @@ import { useCalendarStore } from './useCalendarStore';
 import { updateClothingItem } from '../services/wardrobeRepository';
 import { namedColorsToHsl } from '../utils/hslColor';
 import { usePendingRatingStore } from './usePendingRatingStore';
+import { usePreferenceStore } from './usePreferenceStore';
+import {
+  ENGINE_VERSION,
+  recordGeneratedRecommendations,
+  recordRecommendationEvent,
+} from '../services/recommendation';
 
 interface OutfitState {
   outfits: Outfit[];
@@ -201,6 +207,7 @@ export const useOutfitStore = create<OutfitState>()(
 
         await new Promise((resolve) => setTimeout(resolve, 500));
 
+        const { preferenceVector } = usePreferenceStore.getState();
         const context = {
           occasionKey,
           weather: weather || undefined,
@@ -212,6 +219,7 @@ export const useOutfitStore = create<OutfitState>()(
           paletteId: hasWizardPalette ? paletteId : undefined,
           mustIncludeItemIds: mustIncludeItemIds.length > 0 ? mustIncludeItemIds : undefined,
           mustIncludeItemId: mustIncludeItemIds.length === 1 ? mustIncludeItemIds[0] : undefined,
+          preferenceVector,
         };
 
         const rankedResults = generateRankedOutfits(items, context, rankedCount);
@@ -247,6 +255,14 @@ export const useOutfitStore = create<OutfitState>()(
           isGenerating: false,
           generationError: null,
         });
+
+        recordGeneratedRecommendations({
+          outfits: enriched,
+          occasion: occasionKey,
+          weather: weather || undefined,
+          styleContext: flowStyleIds,
+          requestContext: { occasion: occasionKey, paletteId },
+        });
       },
 
       generateOutfitVariations: (outfitId: string) => {
@@ -277,6 +293,18 @@ export const useOutfitStore = create<OutfitState>()(
 
         recordStyleFeedback(outfitId, feedback);
         learnFromActions(items, updatedOutfits);
+
+        const target = updatedOutfits.find((o) => o.id === outfitId);
+        if (target) {
+          const eventType =
+            feedback === 'liked' ? 'like' : feedback === 'disliked' ? 'dislike' : 'wear';
+          recordRecommendationEvent({
+            eventType,
+            items: target.items,
+            occasion: target.occasion,
+            outfitId,
+          });
+        }
       },
 
       recordOutfitWear: async (outfit: Outfit) => {
@@ -328,6 +356,12 @@ export const useOutfitStore = create<OutfitState>()(
             if (newFavoriteStatus) {
               recordFavoriteOutfit(outfitId);
               void persistOutfit(outfit, { favorite: true });
+              recordRecommendationEvent({
+                eventType: 'save',
+                items: outfit.items,
+                occasion: outfit.occasion,
+                outfitId,
+              });
             }
 
             return {

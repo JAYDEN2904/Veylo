@@ -11,7 +11,11 @@ import { scoreOutfitDimensions, clothingItemToScoringInput } from './outfitDimen
 import { recommendOutfits } from './recommendation/recommendationEngine';
 import { itemMatchesSeason, getCurrentSeason } from './recommendation/constraintEngine';
 import { OCCASION_TAG_KEYWORDS, buildStyleBoostTerms } from './recommendation/styleTerms';
-import type { RankedOutfit, RecommendationRequest } from './recommendation/types';
+import type {
+  RankedOutfit,
+  RecommendationRequest,
+  UserPreferenceVector,
+} from './recommendation/types';
 
 export { OCCASION_TAG_KEYWORDS };
 export { getCurrentSeason };
@@ -32,6 +36,9 @@ export interface OutfitGenerationContext {
   mustIncludeItemIds?: string[];
   /** @deprecated Use mustIncludeItemIds — kept for single-item callers */
   mustIncludeItemId?: string;
+  /** Local preference vector. Must already be in memory — never fetched here. */
+  preferenceVector?: UserPreferenceVector;
+  userId?: string;
 }
 
 export interface OutfitVariation {
@@ -111,6 +118,8 @@ export function toRecommendationRequest(
     paletteId: context.paletteId,
     mustIncludeItemIds: mustIncludeItemIds.length > 0 ? mustIncludeItemIds : undefined,
     count,
+    preferenceVector: context.preferenceVector,
+    userId: context.userId,
   };
 }
 
