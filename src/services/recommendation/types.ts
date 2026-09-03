@@ -1,6 +1,6 @@
 import type { ClothingItem, OutfitGenerationFailure, WeatherData } from '../../types';
 
-export const ENGINE_VERSION = '2.0.0';
+export const ENGINE_VERSION = '2.0.1';
 
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening';
 
@@ -121,6 +121,7 @@ export interface SoftConstraintOptions {
 
 export interface CandidatePool {
   byCategory: Record<string, ClothingItem[]>;
+  /** Retrieval aid only — never use this to prune complete outfit combinations. */
   preliminaryScores: Map<string, number>;
   totalCandidates: number;
 }
