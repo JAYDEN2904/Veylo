@@ -84,6 +84,19 @@ function persistSessionAndEvents(
 }
 
 /**
+ * Event coverage (Sprint 3.1):
+ * impression — generateOutfit (local + edge) via recordGeneratedRecommendations
+ * view       — OutfitResultScreen mount
+ * like       — recordOutfitFeedback('liked') — no dedicated like button yet
+ * dislike    — recordOutfitFeedback('disliked') — no dedicated dislike button yet
+ * save       — toggleFavorite (library + generated)
+ * swap       — TodayScreen handleSwapItem
+ * wear       — recordOutfitWear → recordOutfitFeedback('worn')
+ * share      — OutfitResultScreen handleShare (user completed share)
+ * try_on     — OutfitResultScreen handleTryOn
+ * remove     — no UI yet
+ * dismiss    — no UI yet
+ *
  * Start a session and record impressions for ranked results. Local only on
  * the generate path — remote writes are best-effort and never awaited.
  */

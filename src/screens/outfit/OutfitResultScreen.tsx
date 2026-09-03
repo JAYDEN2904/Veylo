@@ -35,6 +35,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useOutfitStore } from '../../store/useOutfitStore';
 import { useStyleStore } from '../../store/useStyleStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { recordRecommendationEvent } from '../../services/recommendation';
 
 const { width, height } = Dimensions.get('window');
 
@@ -122,6 +123,17 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
       withTiming(-10, { duration: 200 }),
       withTiming(0, { duration: 200 })
     );
+
+    if (outfit) {
+      recordRecommendationEvent({
+        eventType: 'view',
+        items: outfit.items,
+        occasion: outfit.occasion,
+        outfitId: outfit.id,
+      });
+    }
+    // Record view once on mount — outfit identity is stable for the screen lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const sparkleStyle = useAnimatedStyle(() => ({
@@ -137,9 +149,17 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
 
   const handleShare = async () => {
     try {
-      await Share.share({
+      const result = await Share.share({
         message: `Check out this outfit I created with Veylo! 👗✨\n\n${outfit?.occasion || 'My Outfit'}`,
       });
+      if (result.action === Share.sharedAction && outfit) {
+        recordRecommendationEvent({
+          eventType: 'share',
+          items: outfit.items,
+          occasion: outfit.occasion,
+          outfitId: outfit.id,
+        });
+      }
     } catch (error) {
       console.error('Error sharing:', error);
     }
@@ -173,7 +193,14 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
   const { user } = useAuthStore();
 
   const handleTryOn = () => {
-    // Navigate to Virtual Try-On with this outfit
+    if (outfit) {
+      recordRecommendationEvent({
+        eventType: 'try_on',
+        items: outfit.items,
+        occasion: outfit.occasion,
+        outfitId: outfit.id,
+      });
+    }
     navigation.navigate('VirtualTryOn', { outfitId: outfit?.id });
   };
 

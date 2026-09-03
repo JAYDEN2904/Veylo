@@ -241,6 +241,19 @@ export function recommendOutfits(
       ? 0
       : Math.round(ranked.reduce((sum, outfit) => sum + outfit.score.overall, 0) / ranked.length);
 
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    const personalized = ranked.some(
+      (outfit) => outfit.score.personalization !== outfit.score.styleMatch
+    );
+    console.log('[recommendation]', {
+      engineVersion: ENGINE_VERSION,
+      candidates: candidates.totalCandidates,
+      composed: composed.length,
+      ranked: ranked.length,
+      personalization: personalized ? 'behavioral' : 'cold-start',
+    });
+  }
+
   return {
     ok: true,
     recommendations: ranked,

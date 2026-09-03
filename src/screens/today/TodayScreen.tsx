@@ -41,6 +41,7 @@ import { useThemeStore } from '../../store/useThemeStore';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
 import { useOutfitStore } from '../../store/useOutfitStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { recordRecommendationEvent } from '../../services/recommendation';
 import { useCalendarStore } from '../../store/useCalendarStore';
 import { weatherService } from '../../services/weatherService';
 import { useTabScreenPadding } from '../../hooks/useTabScreenPadding';
@@ -262,6 +263,15 @@ export const TodayScreen = ({ navigation }: Props) => {
     async (item: ClothingItem) => {
       setSwapSheetVisible(false);
       if (!generatedOutfit) return;
+
+      recordRecommendationEvent({
+        eventType: 'swap',
+        items: generatedOutfit.items,
+        occasion: generatedOutfit.occasion,
+        itemId: item.id,
+        outfitId: generatedOutfit.id,
+      });
+
       const lockedIds = generatedOutfit.items
         .filter((piece) => piece.id !== item.id)
         .map((piece) => piece.id);

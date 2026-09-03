@@ -31,7 +31,6 @@ import { namedColorsToHsl } from '../utils/hslColor';
 import { usePendingRatingStore } from './usePendingRatingStore';
 import { usePreferenceStore } from './usePreferenceStore';
 import {
-  ENGINE_VERSION,
   recordGeneratedRecommendations,
   recordRecommendationEvent,
 } from '../services/recommendation';
@@ -194,6 +193,15 @@ export const useOutfitStore = create<OutfitState>()(
               isGenerating: false,
               generationError: null,
             });
+
+            recordGeneratedRecommendations({
+              outfits: mappedOutfits,
+              occasion: rawOccasion,
+              weather: weather || undefined,
+              styleContext: flowStyleIds,
+              requestContext: { occasion: rawOccasion, source: 'edge' },
+              engineVersion: 'edge',
+            });
             return;
           } catch (err) {
             if (__DEV__) console.error('[useOutfitStore] generate-outfit-ideas', err);
@@ -294,7 +302,11 @@ export const useOutfitStore = create<OutfitState>()(
         recordStyleFeedback(outfitId, feedback);
         learnFromActions(items, updatedOutfits);
 
-        const target = updatedOutfits.find((o) => o.id === outfitId);
+        const { generatedOutfit, outfitVariations } = get();
+        const target =
+          updatedOutfits.find((o) => o.id === outfitId) ??
+          (generatedOutfit?.id === outfitId ? generatedOutfit : undefined) ??
+          outfitVariations.find((o) => o.id === outfitId);
         if (target) {
           const eventType =
             feedback === 'liked' ? 'like' : feedback === 'disliked' ? 'dislike' : 'wear';
@@ -346,8 +358,32 @@ export const useOutfitStore = create<OutfitState>()(
       },
 
       toggleFavorite: (outfitId: string) => {
-        const { outfits } = get();
+        const { outfits, generatedOutfit, outfitVariations } = get();
         const { recordFavoriteOutfit } = useStyleStore.getState();
+
+        const inLibrary = outfits.some((outfit) => outfit.id === outfitId);
+        if (!inLibrary) {
+          const source =
+            generatedOutfit?.id === outfitId
+              ? generatedOutfit
+              : outfitVariations.find((outfit) => outfit.id === outfitId);
+          if (!source) return;
+          const favorited = { ...source, isFavorite: true, favorite: true };
+          recordFavoriteOutfit(outfitId);
+          void persistOutfit(favorited, { favorite: true });
+          recordRecommendationEvent({
+            eventType: 'save',
+            items: source.items,
+            occasion: source.occasion,
+            outfitId,
+          });
+          set({
+            outfits: [favorited, ...outfits],
+            favorites: [favorited, ...outfits.filter((o) => o.isFavorite)],
+            generatedOutfit: generatedOutfit?.id === outfitId ? favorited : generatedOutfit,
+          });
+          return;
+        }
 
         const updatedOutfits = outfits.map((outfit) => {
           if (outfit.id === outfitId) {
