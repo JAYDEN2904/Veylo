@@ -51,6 +51,29 @@ describe('getCandidateItemsByCategory', () => {
     expect(pool.byCategory['Tops'].some((entry) => entry.id === 'anchor-top')).toBe(true);
   });
 
+  it('can retrieve a structurally different item that is not top-K by score', () => {
+    const highTops = Array.from({ length: 8 }, (_, i) =>
+      item({
+        id: `high-${i}`,
+        category: 'Tops',
+        tags: ['casual', 'everyday', 'weekend'],
+        colors: ['White'],
+        wornCount: 0,
+      })
+    );
+    const lowerTop = item({
+      id: 'top-b',
+      category: 'Tops',
+      tags: ['loud'],
+      colors: ['Orange'],
+      wornCount: 40,
+      lastWorn: new Date().toISOString(),
+    });
+    const pool = getCandidateItemsByCategory([...highTops, lowerTop], { occasion: 'Casual' });
+    expect(pool.byCategory['Tops'].some((entry) => entry.id === 'top-b')).toBe(true);
+    expect(pool.byCategory['Tops'].length).toBe(DEFAULT_CANDIDATE_LIMITS.Tops);
+  });
+
   it('does not drop a low-scoring must-include shoe', () => {
     const shoes = [
       item({

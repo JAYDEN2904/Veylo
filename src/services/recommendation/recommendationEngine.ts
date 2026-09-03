@@ -65,6 +65,13 @@ function createOutfitId(index: number): string {
   return `outfit-${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${index}`;
 }
 
+/**
+ * Sprint 2 debt — these aliases are not independent signals yet:
+ * - compatibility: mean of colour + formality (not pairwise outfit compatibility)
+ * - personalization: copied from styleProfile (no behavioral preference vector)
+ * - novelty: copied from wearDiversity (not set-level recommendation novelty)
+ * Leave the mapping unchanged until Sprint 2 implements real outfit-level scoring.
+ */
 function toScoreBreakdown(dimensions: DimensionScores, overall: number): OutfitScoreBreakdown {
   const compatibility = Math.round((dimensions.colourHarmony + dimensions.formality) / 2);
   return {

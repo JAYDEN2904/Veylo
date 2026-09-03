@@ -1,6 +1,8 @@
 import { ClothingItem } from '../../types';
 import { namedColorsToHsl } from '../../utils/hslColor';
 import { recommendOutfits } from './recommendationEngine';
+import { getCandidateItemsByCategory } from './candidateGenerator';
+import { composeOutfits } from './outfitComposer';
 import { generateContextAwareOutfit, generateRankedOutfits } from '../outfitGenerationService';
 import { ENGINE_VERSION } from './types';
 
@@ -135,6 +137,62 @@ describe('recommendOutfits', () => {
       expect(coherent.score.overall).toBeGreaterThan(clash.score.overall);
     }
     expect(result.recommendations[0].items.some((entry) => entry.id === 'gym-shorts')).toBe(false);
+  });
+
+  it('does not discard a lower-scoring pair before outfits are ranked', () => {
+    const highTops = Array.from({ length: 4 }, (_, i) =>
+      item({
+        id: `high-top-${i}`,
+        category: 'Tops',
+        tags: ['casual', 'everyday', 'weekend'],
+        colors: ['White'],
+        wornCount: 0,
+      })
+    );
+    const topB = item({
+      id: 'top-b',
+      category: 'Tops',
+      tags: ['graphic'],
+      colors: ['Red'],
+      wornCount: 35,
+      lastWorn: new Date().toISOString(),
+    });
+    const highBottoms = Array.from({ length: 4 }, (_, i) =>
+      item({
+        id: `high-bottom-${i}`,
+        category: 'Bottoms',
+        tags: ['casual', 'denim'],
+        colors: ['Black'],
+        wornCount: 0,
+      })
+    );
+    const bottomA = item({
+      id: 'bottom-a',
+      category: 'Bottoms',
+      tags: ['casual'],
+      colors: ['Blue'],
+    });
+    const shoes = Array.from({ length: 4 }, (_, i) =>
+      item({ id: `shoe-${i}`, category: 'Shoes', tags: ['casual'], colors: ['White'] })
+    );
+    const wardrobe = [...highTops, topB, ...highBottoms, bottomA, ...shoes];
+    const request = { occasion: 'Casual' as const };
+
+    const composed = composeOutfits(getCandidateItemsByCategory(wardrobe, request), request, {
+      maxComposed: 40,
+    });
+    expect(
+      composed.some(
+        (outfit) =>
+          outfit.some((entry) => entry.id === 'top-b') &&
+          outfit.some((entry) => entry.id === 'bottom-a')
+      )
+    ).toBe(true);
+
+    const result = recommendOutfits(wardrobe, { ...request, count: 5 }, { maxComposed: 40 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.metadata.composedCount).toBeGreaterThan(1);
   });
 
   it('survives a sparse wardrobe with lower confidence', () => {

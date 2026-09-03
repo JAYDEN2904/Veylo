@@ -10,4 +10,4 @@ export type {
 export { recommendOutfits } from './recommendationEngine';
 export { getCandidateItemsByCategory } from './candidateGenerator';
 export { applyHardConstraints, applySoftConstraints, relaxationOptions } from './constraintEngine';
-export { composeOutfits } from './outfitComposer';
+export { composeOutfits, selectCoresStructurally } from './outfitComposer';

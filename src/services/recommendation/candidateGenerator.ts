@@ -51,38 +51,70 @@ function ensureAnchors(
   return [...missingAnchors, ...selected.filter((item) => !anchorIds.has(item.id))];
 }
 
-function ensureColorDiversity(selected: ClothingItem[], pool: ClothingItem[]): ClothingItem[] {
-  if (selected.length === 0) return selected;
-  const colors = new Set(
-    selected.flatMap((item) => (item.colors ?? []).map((c) => c.toLowerCase()))
+function itemColors(items: ClothingItem[]): Set<string> {
+  return new Set(
+    items.flatMap((entry) => (entry.colors ?? []).map((color) => color.toLowerCase()))
   );
-  if (colors.size >= 2) return selected;
-
-  const selectedIds = new Set(selected.map((item) => item.id));
-  const extra = pool.find((item) => {
-    if (selectedIds.has(item.id)) return false;
-    return (item.colors ?? []).some((color) => !colors.has(color.toLowerCase()));
-  });
-  if (!extra) return selected;
-
-  const withoutLast = selected.slice(0, Math.max(0, selected.length - 1));
-  return [...withoutLast, extra];
 }
 
-function selectTopK(
+function isStructurallyDifferent(item: ClothingItem, selected: ClothingItem[]): boolean {
+  const selectedColors = itemColors(selected);
+  const selectedSubs = new Set(
+    selected.map((entry) => (entry.subCategory ?? '').trim().toLowerCase()).filter(Boolean)
+  );
+  const hasNewColor = (item.colors ?? []).some((color) => !selectedColors.has(color.toLowerCase()));
+  const sub = (item.subCategory ?? '').trim().toLowerCase();
+  const hasNewSub = sub.length > 0 && !selectedSubs.has(sub);
+  return hasNewColor || hasNewSub;
+}
+
+function pickStructuralExtras(
+  remaining: ClothingItem[],
+  primary: ClothingItem[],
+  count: number
+): ClothingItem[] {
+  const extras: ClothingItem[] = [];
+  const taken = new Set<string>();
+
+  for (const item of remaining) {
+    if (extras.length >= count) break;
+    if (!isStructurallyDifferent(item, primary)) continue;
+    extras.push(item);
+    taken.add(item.id);
+  }
+
+  for (const item of remaining) {
+    if (extras.length >= count) break;
+    if (taken.has(item.id)) continue;
+    extras.push(item);
+  }
+  return extras;
+}
+
+/**
+ * Retrieval window only. Preliminary scores bound how many items we compose
+ * with; they must not decide which complete outfits are good.
+ */
+function selectRetrievalWindow(
   categoryItems: ClothingItem[],
   limit: number,
   scores: Map<string, number>,
   anchorIds: Set<string>
 ): ClothingItem[] {
   if (categoryItems.length === 0) return [];
+  if (categoryItems.length <= limit) {
+    return ensureAnchors(categoryItems, categoryItems, anchorIds);
+  }
+
   const ranked = sortByPreliminaryScore(categoryItems, scores);
-  const top = ranked.slice(0, Math.max(limit, 0));
-  const withAnchors = ensureAnchors(top, categoryItems, anchorIds);
+  const reserved = Math.min(2, Math.max(1, Math.floor(limit / 3)));
+  const primaryCount = Math.max(1, limit - reserved);
+  const primary = ranked.slice(0, primaryCount);
+  const extras = pickStructuralExtras(ranked.slice(primaryCount), primary, reserved);
+  const combined = [...primary, ...extras];
+  const withAnchors = ensureAnchors(combined, categoryItems, anchorIds);
   const categoryAnchorCount = categoryItems.filter((item) => anchorIds.has(item.id)).length;
-  const capped = withAnchors.slice(0, Math.max(limit, categoryAnchorCount));
-  const diverse = ensureColorDiversity(capped, ranked);
-  return ensureAnchors(diverse, categoryItems, anchorIds);
+  return withAnchors.slice(0, Math.max(limit, categoryAnchorCount));
 }
 
 export function getCandidateItemsByCategory(
@@ -102,7 +134,7 @@ export function getCandidateItemsByCategory(
   const byCategory: Record<string, ClothingItem[]> = {};
   for (const slot of CANONICAL_SLOTS) {
     const items = grouped[slot] ?? [];
-    byCategory[slot] = selectTopK(items, limits[slot], preliminaryScores, anchorIds);
+    byCategory[slot] = selectRetrievalWindow(items, limits[slot], preliminaryScores, anchorIds);
   }
 
   for (const [category, items] of Object.entries(grouped)) {

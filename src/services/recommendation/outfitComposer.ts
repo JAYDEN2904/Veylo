@@ -90,19 +90,18 @@ function cartesianProduct<T>(lists: T[][]): T[][] {
   );
 }
 
-function coreScore(items: ClothingItem[], scores: Map<string, number>): number {
-  if (items.length === 0) return 0;
-  return items.reduce((sum, item) => sum + (scores.get(item.id) ?? 0), 0) / items.length;
+function outfitKey(items: ClothingItem[]): string {
+  return items
+    .map((item) => item.id)
+    .sort()
+    .join('|');
 }
 
 function uniqueByIdSet(outfits: ClothingItem[][]): ClothingItem[][] {
   const seen = new Set<string>();
   const unique: ClothingItem[][] = [];
   for (const outfit of outfits) {
-    const key = outfit
-      .map((item) => item.id)
-      .sort()
-      .join('|');
+    const key = outfitKey(outfit);
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(outfit);
@@ -110,57 +109,125 @@ function uniqueByIdSet(outfits: ClothingItem[][]): ClothingItem[][] {
   return unique;
 }
 
-function takeTopCores(
-  cores: ClothingItem[][],
-  scores: Map<string, number>,
-  limit: number
-): ClothingItem[][] {
-  return [...cores]
-    .sort((a, b) => coreScore(b, scores) - coreScore(a, scores))
-    .slice(0, Math.max(limit, 0));
+/**
+ * Bound an oversized cartesian by item coverage, not individual scores.
+ * Every item in every required slot appears in at least one kept core when possible.
+ */
+export function selectCoresStructurally(cores: ClothingItem[][], limit: number): ClothingItem[][] {
+  if (cores.length <= limit) return cores;
+  if (limit <= 0) return [];
+
+  const selected: ClothingItem[][] = [];
+  const seen = new Set<string>();
+
+  const tryAdd = (core: ClothingItem[]): boolean => {
+    const key = outfitKey(core);
+    if (seen.has(key) || selected.length >= limit) return false;
+    seen.add(key);
+    selected.push(core);
+    return true;
+  };
+
+  const slotCount = cores[0]?.length ?? 0;
+  for (let slot = 0; slot < slotCount; slot++) {
+    const covered = new Set<string>();
+    for (const core of cores) {
+      const item = core[slot];
+      if (!item || covered.has(item.id)) continue;
+      if (tryAdd(core)) covered.add(item.id);
+    }
+  }
+
+  const stride = Math.max(1, Math.floor(cores.length / Math.max(limit - selected.length, 1)));
+  for (let i = 0; i < cores.length && selected.length < limit; i += stride) {
+    tryAdd(cores[i]);
+  }
+  for (const core of cores) {
+    if (selected.length >= limit) break;
+    tryAdd(core);
+  }
+
+  return selected;
 }
 
-function enumerateCores(
+function enumerateRequiredCores(
   structure: OutfitStructure,
   pool: CandidatePool,
-  anchorsByCategory: Record<string, ClothingItem[]>,
-  coreBudget: number
+  anchorsByCategory: Record<string, ClothingItem[]>
 ): ClothingItem[][] {
   const requiredLists = structure.required.map((slot) =>
     itemsForSlot(slot, pool, anchorsByCategory)
   );
   if (requiredLists.some((list) => list.length === 0)) return [];
 
-  const shoeList = itemsForSlot('Shoes', pool, anchorsByCategory);
-  const slotLists = shoeList.length > 0 ? [...requiredLists, shoeList] : requiredLists;
-  const cores = cartesianProduct(slotLists).filter((combo) => {
+  return cartesianProduct(requiredLists).filter((combo) => {
     const ids = combo.map((item) => item.id);
     return new Set(ids).size === ids.length;
   });
-
-  return takeTopCores(cores, pool.preliminaryScores, coreBudget);
 }
 
-function attachOptionalLayers(
+/**
+ * Attach a required-if-present slot (shoes) so every core stays representable.
+ * Extra pairings are added only while budget remains — no score ranking.
+ */
+function expandPresentSlot(
   cores: ClothingItem[][],
-  pool: CandidatePool,
-  anchorsByCategory: Record<string, ClothingItem[]>
+  layers: ClothingItem[],
+  budget: number
 ): ClothingItem[][] {
-  const outerwear = itemsForSlot('Outerwear', pool, anchorsByCategory);
-  const accessories = itemsForSlot('Accessories', pool, anchorsByCategory);
-  const forcedOuter = (anchorsByCategory['Outerwear'] ?? [])[0];
-  const forcedAccessory = (anchorsByCategory['Accessories'] ?? [])[0];
+  if (layers.length === 0) return cores;
+  if (cores.length === 0) return [];
 
-  return cores.map((core, index) => {
-    const next = [...core];
-    const outer =
-      forcedOuter ?? (outerwear.length > 0 ? outerwear[index % outerwear.length] : null);
-    const accessory =
-      forcedAccessory ?? (accessories.length > 0 ? accessories[index % accessories.length] : null);
-    if (outer && !next.some((item) => item.id === outer.id)) next.push(outer);
-    if (accessory && !next.some((item) => item.id === accessory.id)) next.push(accessory);
-    return next;
-  });
+  const fullSize = cores.length * layers.length;
+  if (fullSize <= budget) {
+    return cores.flatMap((core) => layers.map((layer) => [...core, layer]));
+  }
+
+  const expanded = cores.map((core, index) => [...core, layers[index % layers.length]]);
+  const remaining = Math.max(0, budget - expanded.length);
+  if (remaining === 0) return expanded;
+
+  const extras: ClothingItem[][] = [];
+  for (let offset = 1; offset < layers.length && extras.length < remaining; offset++) {
+    for (let i = 0; i < cores.length && extras.length < remaining; i++) {
+      extras.push([...cores[i], layers[(i + offset) % layers.length]]);
+    }
+  }
+  return [...expanded, ...extras];
+}
+
+/**
+ * Optional layers become extra outfit variants. The bare core is always kept
+ * unless the layer is a must-include anchor.
+ */
+function expandOptionalSlot(
+  bases: ClothingItem[][],
+  layers: ClothingItem[],
+  budget: number,
+  isForced: boolean
+): ClothingItem[][] {
+  if (layers.length === 0) return bases;
+  if (isForced) {
+    const forced = layers[0];
+    return bases.map((base) =>
+      base.some((item) => item.id === forced.id) ? base : [...base, forced]
+    );
+  }
+
+  const variants = [...bases];
+  const remaining = Math.max(0, budget - variants.length);
+  if (remaining === 0) return variants;
+
+  let added = 0;
+  for (let offset = 0; offset < layers.length && added < remaining; offset++) {
+    for (let i = 0; i < bases.length && added < remaining; i++) {
+      const layer = layers[(i + offset) % layers.length];
+      const next = bases[i].some((item) => item.id === layer.id) ? bases[i] : [...bases[i], layer];
+      variants.push(next);
+      added += 1;
+    }
+  }
+  return variants;
 }
 
 function resolveAnchors(pool: CandidatePool, request: RecommendationRequest): ClothingItem[] {
@@ -194,13 +261,28 @@ export function composeOutfits(
   if (structures.length === 0) return [];
 
   const maxComposed = targetComposedCount(pool.totalCandidates, options.maxComposed);
-  const coreBudget = Math.max(6, Math.ceil(maxComposed / Math.max(structures.length, 1)));
+  const pairBudget = Math.max(12, maxComposed);
   const outfits: ClothingItem[][] = [];
 
   for (const structure of structures) {
-    const cores = enumerateCores(structure, pool, anchorsByCategory, coreBudget);
-    const layered = attachOptionalLayers(cores, pool, anchorsByCategory);
-    for (const outfit of layered) {
+    const requiredCores = enumerateRequiredCores(structure, pool, anchorsByCategory);
+    const cores = selectCoresStructurally(requiredCores, pairBudget);
+    const shoes = itemsForSlot('Shoes', pool, anchorsByCategory);
+    const withShoes = expandPresentSlot(cores, shoes, maxComposed);
+    const withOuter = expandOptionalSlot(
+      withShoes,
+      itemsForSlot('Outerwear', pool, anchorsByCategory),
+      maxComposed,
+      (anchorsByCategory['Outerwear']?.length ?? 0) > 0
+    );
+    const withAccessories = expandOptionalSlot(
+      withOuter,
+      itemsForSlot('Accessories', pool, anchorsByCategory),
+      maxComposed,
+      (anchorsByCategory['Accessories']?.length ?? 0) > 0
+    );
+
+    for (const outfit of withAccessories) {
       const withAnchors = mergeAnchors(outfit, anchors);
       if (meetsMinimumCoverage(withAnchors)) outfits.push(withAnchors);
     }

@@ -1,7 +1,7 @@
 import { ClothingItem } from '../../types';
 import { namedColorsToHsl } from '../../utils/hslColor';
 import { getCandidateItemsByCategory } from './candidateGenerator';
-import { composeOutfits, meetsMinimumCoverage } from './outfitComposer';
+import { composeOutfits, meetsMinimumCoverage, selectCoresStructurally } from './outfitComposer';
 
 const item = (overrides: Partial<ClothingItem>): ClothingItem => {
   const colors = overrides.colors ?? ['White'];
@@ -21,6 +21,20 @@ const item = (overrides: Partial<ClothingItem>): ClothingItem => {
 function idsOf(outfit: ClothingItem[]): string[] {
   return outfit.map((entry) => entry.id).sort();
 }
+
+describe('selectCoresStructurally', () => {
+  it('keeps every core when the cartesian already fits the budget', () => {
+    const topA = item({ id: 'top-a', category: 'Tops' });
+    const topB = item({ id: 'top-b', category: 'Tops' });
+    const bottomA = item({ id: 'bottom-a', category: 'Bottoms' });
+    const cores = [
+      [topA, bottomA],
+      [topB, bottomA],
+    ];
+    expect(selectCoresStructurally(cores, 2)).toHaveLength(2);
+    expect(selectCoresStructurally(cores, 2).some((core) => core[0].id === 'top-b')).toBe(true);
+  });
+});
 
 describe('composeOutfits', () => {
   it('builds standard outfits from top + bottom + shoes', () => {
@@ -100,5 +114,79 @@ describe('composeOutfits', () => {
     const outfits = composeOutfits(pool, { occasion: 'Casual' });
     expect(outfits).toHaveLength(1);
     expect(meetsMinimumCoverage(outfits[0])).toBe(true);
+  });
+
+  it('keeps a lower individual-score pair that can still form a valid outfit', () => {
+    const highTops = Array.from({ length: 4 }, (_, i) =>
+      item({ id: `high-top-${i}`, category: 'Tops', colors: ['White'] })
+    );
+    const topA = item({ id: 'top-a', category: 'Tops', colors: ['Navy'] });
+    const topB = item({ id: 'top-b', category: 'Tops', colors: ['Red'] });
+    const highBottoms = Array.from({ length: 4 }, (_, i) =>
+      item({ id: `high-bottom-${i}`, category: 'Bottoms', colors: ['Black'] })
+    );
+    const bottomA = item({ id: 'bottom-a', category: 'Bottoms', colors: ['Blue'] });
+    const bottomB = item({ id: 'bottom-b', category: 'Bottoms', colors: ['Green'] });
+    const shoes = Array.from({ length: 4 }, (_, i) =>
+      item({ id: `shoe-${i}`, category: 'Shoes', colors: ['White'] })
+    );
+
+    const scores = new Map<string, number>([
+      ['top-a', 95],
+      ['top-b', 70],
+      ['bottom-a', 94],
+      ['bottom-b', 65],
+      ...highTops.map((entry, i) => [entry.id, 99 - i] as const),
+      ...highBottoms.map((entry, i) => [entry.id, 98 - i] as const),
+      ...shoes.map((entry) => [entry.id, 90] as const),
+    ]);
+
+    const tops = [...highTops, topA, topB];
+    const bottoms = [...highBottoms, bottomA, bottomB];
+    const pool = {
+      byCategory: {
+        Tops: tops,
+        Bottoms: bottoms,
+        Shoes: shoes,
+        Outerwear: [],
+        Accessories: [],
+        Dresses: [],
+      },
+      preliminaryScores: scores,
+      totalCandidates: tops.length + bottoms.length + shoes.length,
+    };
+
+    const outfits = composeOutfits(pool, { occasion: 'Casual' }, { maxComposed: 40 });
+    const hasLowerScorePair = outfits.some(
+      (outfit) =>
+        outfit.some((entry) => entry.id === 'top-b') &&
+        outfit.some((entry) => entry.id === 'bottom-a')
+    );
+    expect(hasLowerScorePair).toBe(true);
+  });
+
+  it('emits optional layer variants instead of a single rotated assignment', () => {
+    const wardrobe = [
+      item({ id: 't1', category: 'Tops' }),
+      item({ id: 'b1', category: 'Bottoms' }),
+      item({ id: 's1', category: 'Shoes' }),
+      item({ id: 'j1', category: 'Outerwear', colors: ['Navy'] }),
+      item({ id: 'j2', category: 'Outerwear', colors: ['Black'] }),
+    ];
+    const pool = getCandidateItemsByCategory(wardrobe, { occasion: 'Casual' });
+    const outfits = composeOutfits(pool, { occasion: 'Casual' });
+    const hasBareCore = outfits.some(
+      (outfit) =>
+        outfit.some((entry) => entry.id === 't1') &&
+        outfit.some((entry) => entry.id === 'b1') &&
+        !outfit.some((entry) => entry.category === 'Outerwear')
+    );
+    const jacketsUsed = new Set(
+      outfits.flatMap((outfit) =>
+        outfit.filter((entry) => entry.category === 'Outerwear').map((entry) => entry.id)
+      )
+    );
+    expect(hasBareCore).toBe(true);
+    expect(jacketsUsed.size).toBeGreaterThan(1);
   });
 });
