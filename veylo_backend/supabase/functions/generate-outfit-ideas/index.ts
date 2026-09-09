@@ -1,4 +1,7 @@
-// generate-outfit-ideas — occasion-aware hybrid scorer + optional Gemini refinement.
+// generate-outfit-ideas — LEGACY greedy assembler + optional Gemini refinement.
+// Sprint 3.2: production ranking lives in src/services/recommendation/.
+// This function is emergency fallback only (client calls it if the local engine throws).
+// Do not treat pickOutfit / scoreOutfitComposite as the live ranking source of truth.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';

@@ -9,6 +9,7 @@ export type {
   RankingWeights,
   UserPreferenceVector,
   RecommendationEventType,
+  GenerationSource,
 } from './types';
 export { recommendOutfits } from './recommendationEngine';
 export { getCandidateItemsByCategory } from './candidateGenerator';

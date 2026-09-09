@@ -128,6 +128,16 @@ export function recordGeneratedRecommendations(input: GeneratedRecommendationCap
 
 export function recordRecommendationEvent(input: RecommendationEventInput): void {
   const store = usePreferenceStore.getState();
+  if (input.eventType === 'view' && input.outfitId) {
+    const sessionId = store.lastSession?.id ?? null;
+    const alreadyViewed = store.recentEvents.some(
+      (event) =>
+        event.eventType === 'view' &&
+        event.outfitId === input.outfitId &&
+        event.sessionId === sessionId
+    );
+    if (alreadyViewed) return;
+  }
   const event = store.applyEvent(input);
   persistSessionAndEvents(store.lastSession, [event]);
 }

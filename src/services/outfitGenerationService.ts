@@ -11,11 +11,14 @@ import { scoreOutfitDimensions, clothingItemToScoringInput } from './outfitDimen
 import { recommendOutfits } from './recommendation/recommendationEngine';
 import { itemMatchesSeason, getCurrentSeason } from './recommendation/constraintEngine';
 import { OCCASION_TAG_KEYWORDS, buildStyleBoostTerms } from './recommendation/styleTerms';
+import { hasBehavioralSignal } from './recommendation/feedback/recommendationFeedback';
 import type {
   RankedOutfit,
+  RecommendationMetadata,
   RecommendationRequest,
   UserPreferenceVector,
 } from './recommendation/types';
+import { ENGINE_VERSION } from './recommendation/types';
 
 export { OCCASION_TAG_KEYWORDS };
 export { getCurrentSeason };
@@ -153,6 +156,8 @@ function rankedToOutfit(
     fitScore: ranked.score.overall,
     fitReasoning: ranked.reasons.map((reason) => reason.text),
     styleMatchScore: ranked.score.styleMatch,
+    generationSource: 'local',
+    engineVersion: ENGINE_VERSION,
   };
 }
 
@@ -190,16 +195,70 @@ export function generateRankedOutfits(
   context: OutfitGenerationContext,
   count: number = 3
 ): OutfitGenerationResult[] {
+  const detailed = generateRankedOutfitsDetailed(items, context, count);
+  if (!detailed.ok) {
+    return [{ ok: false, failure: detailed.failure }];
+  }
+  return detailed.outfits.map((outfit) => ({
+    ok: true as const,
+    outfit,
+    usedRelaxedFilters: detailed.usedRelaxedFilters,
+  }));
+}
+
+export interface RankedGenerationSuccess {
+  ok: true;
+  outfits: Outfit[];
+  usedRelaxedFilters: boolean;
+  metadata: RecommendationMetadata;
+  personalizationUsed: boolean;
+  coldStart: boolean;
+  source: 'local';
+  engineVersion: string;
+}
+
+export interface RankedGenerationFailure {
+  ok: false;
+  failure: OutfitGenerationFailure;
+  metadata: RecommendationMetadata;
+  source: 'local';
+  engineVersion: string;
+}
+
+/**
+ * Production generation: Sprint 1–3 engine with injected preference vector.
+ * Ranking is `recommendOutfits` → `rankComposedOutfits`. Never fetches prefs.
+ */
+export function generateRankedOutfitsDetailed(
+  items: ClothingItem[],
+  context: OutfitGenerationContext,
+  count: number = 3
+): RankedGenerationSuccess | RankedGenerationFailure {
   const result = recommendOutfits(items, toRecommendationRequest(context, count));
   if (!result.ok) {
-    return [{ ok: false, failure: result.failure }];
+    return {
+      ok: false,
+      failure: result.failure,
+      metadata: result.metadata,
+      source: 'local',
+      engineVersion: ENGINE_VERSION,
+    };
   }
 
-  return result.recommendations.map((ranked) => ({
-    ok: true as const,
-    outfit: rankedToOutfit(ranked, context, result.metadata.filtersRelaxed),
+  const outfits = result.recommendations.map((ranked) =>
+    rankedToOutfit(ranked, context, result.metadata.filtersRelaxed)
+  );
+
+  return {
+    ok: true,
+    outfits,
     usedRelaxedFilters: result.metadata.filtersRelaxed,
-  }));
+    metadata: result.metadata,
+    personalizationUsed: hasBehavioralSignal(context.preferenceVector),
+    coldStart: !hasBehavioralSignal(context.preferenceVector),
+    source: 'local',
+    engineVersion: ENGINE_VERSION,
+  };
 }
 
 export function enrichOutfitWithDimensionScores(

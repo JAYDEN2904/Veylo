@@ -191,6 +191,9 @@ export interface Outfit {
   difficultyLabel?: string;
   /** When generator widened filters (e.g. dropped strict occasion match) */
   usedRelaxedFilters?: boolean;
+  /** Which generator produced this look. Optional so library outfits stay valid. */
+  generationSource?: 'local' | 'edge-fallback';
+  engineVersion?: string;
 }
 
 export type OutfitGenerationFailureReason =

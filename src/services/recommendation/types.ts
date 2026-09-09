@@ -1,6 +1,8 @@
 import type { ClothingItem, OutfitGenerationFailure, WeatherData } from '../../types';
 
-export const ENGINE_VERSION = '2.2.0';
+export const ENGINE_VERSION = '2.3.0';
+
+export type GenerationSource = 'local' | 'edge-fallback';
 
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening';
 

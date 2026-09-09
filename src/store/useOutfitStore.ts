@@ -6,10 +6,8 @@ import { useStyleStore } from './useStyleStore';
 import { useWardrobeStore } from './useWardrobeStore';
 import { weatherService } from '../services/weatherService';
 import {
-  generateContextAwareOutfit,
   generateOutfitVariations,
-  generateRankedOutfits,
-  enrichOutfitWithDimensionScores,
+  generateRankedOutfitsDetailed,
   resolveOccasionKey,
   resolveMustIncludeItemIds,
 } from '../services/outfitGenerationService';
@@ -131,89 +129,9 @@ export const useOutfitStore = create<OutfitState>()(
         const hasWizardPalette = Boolean(paletteId);
         const mustIncludeItemIds = resolveMustIncludeItemIds(options ?? {});
 
-        // Prefer server-side generation whenever Supabase is configured.
-        // Palette is a soft local preference only (applied in the local fallback path).
-        if (isSupabaseConfigured()) {
-          try {
-            const req: GenerateOutfitRequest = {
-              occasion: rawOccasion,
-              style_preferences: flowStyleIds ?? styleProfile?.preferences,
-              count: rankedCount,
-              persist: false,
-              must_include_item_ids: mustIncludeItemIds.length > 0 ? mustIncludeItemIds : undefined,
-              must_include_item_id:
-                mustIncludeItemIds.length === 1 ? mustIncludeItemIds[0] : undefined,
-              weather: weather
-                ? { temperature: weather.temperature, condition: weather.condition }
-                : undefined,
-            };
-            const res = await functionsClient.generateOutfits(req);
-            if (!res.outfits || res.outfits.length === 0) {
-              const reason =
-                res.reason === 'empty_wardrobe'
-                  ? 'empty_wardrobe'
-                  : res.reason === 'insufficient_categories'
-                    ? 'insufficient_categories'
-                    : 'filters_too_strict';
-              const message =
-                typeof (res as { message?: string }).message === 'string'
-                  ? (res as { message: string }).message
-                  : reason === 'empty_wardrobe'
-                    ? 'Add a few items to your wardrobe first.'
-                    : reason === 'insufficient_categories'
-                      ? 'You need at least a top and a bottom (or a dress) to build an outfit.'
-                      : 'No outfit could be generated with current filters.';
-              set({
-                isGenerating: false,
-                generatedOutfit: null,
-                generationError: { reason, message },
-                outfitVariations: [],
-              });
-              return;
-            }
-            const mappedOutfits = res.outfits.map((g) => {
-              const mapped = mapGeneratedOutfit(g, items);
-              if (g.fit_reasoning?.length) {
-                mapped.fitReasoning = g.fit_reasoning;
-              }
-              if (styleProfile && !g.fit_reasoning?.length) {
-                mapped.styleMatchScore = calculateStyleMatchScore(mapped);
-                const fit = predictOutfitFit(mapped, get().outfits);
-                mapped.fitScore = fit.fitScore;
-                mapped.fitReasoning = fit.reasoning;
-              }
-              const difficulty = calculateOutfitDifficulty(mapped);
-              mapped.difficultyScore = difficulty.difficultyScore;
-              mapped.difficultyLabel = getOutfitDifficultyLabel(difficulty.difficultyScore);
-              return mapped;
-            });
-            set({
-              generatedOutfit: mappedOutfits[0],
-              outfitVariations: mappedOutfits.slice(1),
-              isGenerating: false,
-              generationError: null,
-            });
-
-            recordGeneratedRecommendations({
-              outfits: mappedOutfits,
-              occasion: rawOccasion,
-              weather: weather || undefined,
-              styleContext: flowStyleIds,
-              requestContext: { occasion: rawOccasion, source: 'edge' },
-              engineVersion: 'edge',
-            });
-            return;
-          } catch (err) {
-            if (__DEV__) console.error('[useOutfitStore] generate-outfit-ideas', err);
-            // Fall through to local generation below.
-          }
-        }
-
         const hour = new Date().getHours();
         const timeOfDay: 'morning' | 'afternoon' | 'evening' =
           hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
-
-        await new Promise((resolve) => setTimeout(resolve, 500));
 
         const { preferenceVector } = usePreferenceStore.getState();
         const context = {
@@ -223,54 +141,168 @@ export const useOutfitStore = create<OutfitState>()(
           season: undefined,
           stylePreferences: styleProfile?.preferences,
           flowStyleIds,
-          // Soft preference — only used by local scoring when edge is unavailable.
           paletteId: hasWizardPalette ? paletteId : undefined,
           mustIncludeItemIds: mustIncludeItemIds.length > 0 ? mustIncludeItemIds : undefined,
           mustIncludeItemId: mustIncludeItemIds.length === 1 ? mustIncludeItemIds[0] : undefined,
           preferenceVector,
         };
 
-        const rankedResults = generateRankedOutfits(items, context, rankedCount);
-        if (rankedResults.length === 0 || !rankedResults[0].ok) {
-          const failure =
-            rankedResults[0]?.ok === false
-              ? rankedResults[0].failure
-              : {
-                  reason: 'filters_too_strict' as const,
-                  message: 'No outfit could be generated with current filters.',
-                };
+        try {
+          const detailed = generateRankedOutfitsDetailed(items, context, rankedCount);
+          if (!detailed.ok) {
+            set({
+              isGenerating: false,
+              generatedOutfit: null,
+              generationError: detailed.failure,
+              outfitVariations: [],
+            });
+            return;
+          }
+
+          const outfits = detailed.outfits.map((outfit) => {
+            const difficulty = calculateOutfitDifficulty(outfit);
+            return {
+              ...outfit,
+              difficultyScore: difficulty.difficultyScore,
+              difficultyLabel: getOutfitDifficultyLabel(difficulty.difficultyScore),
+            };
+          });
+
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.log('[recommendation:production]', {
+              engineVersion: detailed.engineVersion,
+              candidateCount: detailed.metadata.candidateCount,
+              composedOutfitCount: detailed.metadata.composedCount,
+              rankedOutfitCount: detailed.metadata.finalCount,
+              personalizationUsed: detailed.personalizationUsed,
+              coldStart: detailed.coldStart,
+              generationSource: detailed.source,
+              generationDurationMs: detailed.metadata.generationLatencyMs,
+            });
+          }
+
+          set({
+            generatedOutfit: outfits[0],
+            outfitVariations: outfits.slice(1),
+            isGenerating: false,
+            generationError: null,
+          });
+
+          recordGeneratedRecommendations({
+            outfits,
+            occasion: occasionKey,
+            weather: weather || undefined,
+            styleContext: flowStyleIds,
+            requestContext: {
+              occasion: occasionKey,
+              paletteId,
+              source: detailed.source,
+            },
+            engineVersion: detailed.engineVersion,
+          });
+          return;
+        } catch (err) {
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.error('[useOutfitStore] local recommendation engine', err);
+          }
+        }
+
+        // Emergency only: Edge greedy assembler if the local engine throws.
+        if (!isSupabaseConfigured()) {
           set({
             isGenerating: false,
             generatedOutfit: null,
-            generationError: failure,
+            generationError: {
+              reason: 'filters_too_strict',
+              message: 'No outfit could be generated with current filters.',
+            },
             outfitVariations: [],
           });
           return;
         }
 
-        const enriched = rankedResults
-          .filter((r): r is Extract<typeof r, { ok: true }> => r.ok)
-          .map((r) => enrichOutfitWithDimensionScores(r.outfit, context));
-
-        const primary = enriched[0];
-        if (styleProfile) {
-          primary.styleMatchScore = calculateStyleMatchScore(primary);
+        try {
+          const req: GenerateOutfitRequest = {
+            occasion: rawOccasion,
+            style_preferences: flowStyleIds ?? styleProfile?.preferences,
+            count: rankedCount,
+            persist: false,
+            must_include_item_ids: mustIncludeItemIds.length > 0 ? mustIncludeItemIds : undefined,
+            must_include_item_id:
+              mustIncludeItemIds.length === 1 ? mustIncludeItemIds[0] : undefined,
+            weather: weather
+              ? { temperature: weather.temperature, condition: weather.condition }
+              : undefined,
+          };
+          const res = await functionsClient.generateOutfits(req);
+          if (!res.outfits || res.outfits.length === 0) {
+            const reason =
+              res.reason === 'empty_wardrobe'
+                ? 'empty_wardrobe'
+                : res.reason === 'insufficient_categories'
+                  ? 'insufficient_categories'
+                  : 'filters_too_strict';
+            const message =
+              typeof (res as { message?: string }).message === 'string'
+                ? (res as { message: string }).message
+                : reason === 'empty_wardrobe'
+                  ? 'Add a few items to your wardrobe first.'
+                  : reason === 'insufficient_categories'
+                    ? 'You need at least a top and a bottom (or a dress) to build an outfit.'
+                    : 'No outfit could be generated with current filters.';
+            set({
+              isGenerating: false,
+              generatedOutfit: null,
+              generationError: { reason, message },
+              outfitVariations: [],
+            });
+            return;
+          }
+          const mappedOutfits = res.outfits.map((g) => {
+            const mapped = mapGeneratedOutfit(g, items);
+            mapped.generationSource = 'edge-fallback';
+            if (g.fit_reasoning?.length) {
+              mapped.fitReasoning = g.fit_reasoning;
+            }
+            if (styleProfile && !g.fit_reasoning?.length) {
+              mapped.styleMatchScore = calculateStyleMatchScore(mapped);
+              const fit = predictOutfitFit(mapped, get().outfits);
+              mapped.fitScore = fit.fitScore;
+              mapped.fitReasoning = fit.reasoning;
+            }
+            const difficulty = calculateOutfitDifficulty(mapped);
+            mapped.difficultyScore = difficulty.difficultyScore;
+            mapped.difficultyLabel = getOutfitDifficultyLabel(difficulty.difficultyScore);
+            return mapped;
+          });
+          set({
+            generatedOutfit: mappedOutfits[0],
+            outfitVariations: mappedOutfits.slice(1),
+            isGenerating: false,
+            generationError: null,
+          });
+          recordGeneratedRecommendations({
+            outfits: mappedOutfits,
+            occasion: occasionKey,
+            weather: weather || undefined,
+            styleContext: flowStyleIds,
+            requestContext: { occasion: occasionKey, source: 'edge-fallback' },
+            engineVersion: 'edge-fallback',
+          });
+        } catch (err) {
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.error('[useOutfitStore] generate-outfit-ideas fallback', err);
+          }
+          set({
+            isGenerating: false,
+            generatedOutfit: null,
+            generationError: {
+              reason: 'filters_too_strict',
+              message: 'No outfit could be generated with current filters.',
+            },
+            outfitVariations: [],
+          });
         }
-
-        set({
-          generatedOutfit: primary,
-          outfitVariations: enriched.slice(1),
-          isGenerating: false,
-          generationError: null,
-        });
-
-        recordGeneratedRecommendations({
-          outfits: enriched,
-          occasion: occasionKey,
-          weather: weather || undefined,
-          styleContext: flowStyleIds,
-          requestContext: { occasion: occasionKey, paletteId },
-        });
       },
 
       generateOutfitVariations: (outfitId: string) => {
