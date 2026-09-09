@@ -12,6 +12,7 @@ import {
   relaxationOptions,
 } from './constraintEngine';
 import { rankComposedOutfits } from './ranking/outfitRanker';
+import { hasItemEmbeddings, scoreOutfitEmbeddingCompatibility } from './compatibility/embeddingCompatibility';
 import {
   ENGINE_VERSION,
   type OutfitScoreBreakdown,
@@ -36,6 +37,8 @@ function emptyMetadata(partial: Partial<RecommendationMetadata> = {}): Recommend
     relaxationLevel: 0,
     generationLatencyMs: 0,
     averageScore: 0,
+    embeddingsAvailable: false,
+    embeddingsUsed: false,
     ...partial,
   };
 }
@@ -240,6 +243,10 @@ export function recommendOutfits(
     ranked.length === 0
       ? 0
       : Math.round(ranked.reduce((sum, outfit) => sum + outfit.score.overall, 0) / ranked.length);
+  const embeddingsAvailable = hasItemEmbeddings(request.itemEmbeddings);
+  const embeddingsUsed =
+    embeddingsAvailable &&
+    composed.some((outfit) => scoreOutfitEmbeddingCompatibility(outfit, request.itemEmbeddings).used);
 
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     const personalized = ranked.some(
@@ -251,6 +258,7 @@ export function recommendOutfits(
       composed: composed.length,
       ranked: ranked.length,
       personalization: personalized ? 'behavioral' : 'cold-start',
+      embeddings: embeddingsUsed ? 'used' : embeddingsAvailable ? 'available' : 'none',
     });
   }
 
@@ -266,6 +274,8 @@ export function recommendOutfits(
       relaxationLevel: feasible.level,
       generationLatencyMs: Date.now() - startedAt,
       averageScore,
+      embeddingsAvailable,
+      embeddingsUsed,
     }),
   };
 }

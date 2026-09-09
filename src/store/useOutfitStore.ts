@@ -23,6 +23,7 @@ import {
   type GenerateOutfitRequest,
 } from '../services/functionsClient';
 import { isSupabaseConfigured, getSupabase } from '../services/supabase';
+import { fetchItemEmbeddings } from '../services/recommendation/itemEmbeddings';
 import { useCalendarStore } from './useCalendarStore';
 import { updateClothingItem } from '../services/wardrobeRepository';
 import { namedColorsToHsl } from '../utils/hslColor';
@@ -135,6 +136,19 @@ export const useOutfitStore = create<OutfitState>()(
           hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
 
         const { preferenceVector } = usePreferenceStore.getState();
+        let itemEmbeddings: Record<string, number[]> | undefined;
+        if (isSupabaseConfigured() && items.length > 0) {
+          try {
+            const loaded = await fetchItemEmbeddings(items.map((item) => item.id));
+            if (Object.keys(loaded).length > 0) {
+              itemEmbeddings = loaded;
+            }
+          } catch (err) {
+            if (typeof __DEV__ !== 'undefined' && __DEV__) {
+              console.warn('[useOutfitStore] embeddings fetch failed', err);
+            }
+          }
+        }
         const context = {
           occasionKey,
           weather: weather || undefined,
@@ -146,6 +160,7 @@ export const useOutfitStore = create<OutfitState>()(
           mustIncludeItemIds: mustIncludeItemIds.length > 0 ? mustIncludeItemIds : undefined,
           mustIncludeItemId: mustIncludeItemIds.length === 1 ? mustIncludeItemIds[0] : undefined,
           preferenceVector,
+          itemEmbeddings,
         };
 
         try {
@@ -179,6 +194,8 @@ export const useOutfitStore = create<OutfitState>()(
               coldStart: detailed.coldStart,
               generationSource: detailed.source,
               generationDurationMs: detailed.metadata.generationLatencyMs,
+              embeddingsUsed: detailed.metadata.embeddingsUsed,
+              embeddingsAvailable: detailed.metadata.embeddingsAvailable,
             });
           }
 

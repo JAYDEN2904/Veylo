@@ -1,6 +1,6 @@
 import type { ClothingItem, OutfitGenerationFailure, WeatherData } from '../../types';
 
-export const ENGINE_VERSION = '2.3.0';
+export const ENGINE_VERSION = '2.4.0';
 
 export type GenerationSource = 'local' | 'edge-fallback';
 
@@ -62,6 +62,9 @@ export interface UserPreferenceVector {
   updatedAt: string;
 }
 
+/** itemId → embedding vector. Never fetched inside recommendOutfits. */
+export type ItemEmbeddingMap = Record<string, number[]>;
+
 export interface RecommendationRequest {
   userId?: string;
   occasion?: string;
@@ -80,6 +83,11 @@ export interface RecommendationRequest {
    * Missing or empty → cold-start style match.
    */
   preferenceVector?: UserPreferenceVector;
+  /**
+   * Optional item embeddings already loaded by the caller.
+   * Missing → embedding compatibility is skipped (neutral, existing formula).
+   */
+  itemEmbeddings?: ItemEmbeddingMap;
 }
 
 export interface RankingWeights {
@@ -151,6 +159,10 @@ export interface RecommendationMetadata {
   relaxationLevel: RelaxationLevel;
   generationLatencyMs: number;
   averageScore: number;
+  /** Caller supplied at least one usable item vector. */
+  embeddingsAvailable: boolean;
+  /** At least one scored pair used cosine similarity. */
+  embeddingsUsed: boolean;
 }
 
 export type RecommendationResult =

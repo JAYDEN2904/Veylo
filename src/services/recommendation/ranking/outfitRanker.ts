@@ -42,7 +42,7 @@ export function scoreCompleteOutfit(
 ): OutfitScoreBreakdown {
   const occasion = request.occasion ?? 'Casual';
   const styleTerms = buildStyleBoostTerms(request);
-  const compat = scoreOutfitCompatibility(items, occasion);
+  const compat = scoreOutfitCompatibility(items, occasion, request.itemEmbeddings);
   const occasionFit = scoreOutfitOccasion(items, occasion);
   const weatherFit = scoreOutfitWeather(items, request.weather);
   const styleMatch = scoreOutfitStyleMatch(items, styleTerms);

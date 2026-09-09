@@ -8,6 +8,7 @@ export type {
   RecommendationMetadata,
   RankingWeights,
   UserPreferenceVector,
+  ItemEmbeddingMap,
   RecommendationEventType,
   GenerationSource,
 } from './types';
@@ -19,6 +20,12 @@ export { composeOutfits, selectCoresStructurally } from './outfitComposer';
 export { scoreCompleteOutfit, rankComposedOutfits } from './ranking/outfitRanker';
 export { scorePersonalization } from './ranking/personalizationRanker';
 export { scoreOutfitCompatibility } from './compatibility/compatibilityEngine';
+export {
+  scoreOutfitEmbeddingCompatibility,
+  scoreEmbeddingPair,
+  hasItemEmbeddings,
+} from './compatibility/embeddingCompatibility';
+export { fetchItemEmbeddings, parseEmbedding } from './itemEmbeddings';
 export {
   applyFeedbackToVector,
   emptyPreferenceVector,

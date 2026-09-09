@@ -9,6 +9,10 @@ import {
   type RecommendationRequest,
 } from './types';
 import { occasionTagKeywords, buildStyleBoostTerms } from './styleTerms';
+import {
+  combinePreliminaryScore,
+  scoreItemEmbeddingAffinity,
+} from './compatibility/embeddingCompatibility';
 
 export function buildScoreContext(request: RecommendationRequest): ScoreContext {
   const occasionKey = request.occasion ?? 'Casual';
@@ -128,7 +132,9 @@ export function getCandidateItemsByCategory(
   const preliminaryScores = new Map<string, number>();
 
   for (const item of pool) {
-    preliminaryScores.set(item.id, scoreItemForSlot(item, scoreCtx, []));
+    const slotScore = scoreItemForSlot(item, scoreCtx, []);
+    const embeddingAffinity = scoreItemEmbeddingAffinity(item, request);
+    preliminaryScores.set(item.id, combinePreliminaryScore(slotScore, embeddingAffinity));
   }
 
   const byCategory: Record<string, ClothingItem[]> = {};

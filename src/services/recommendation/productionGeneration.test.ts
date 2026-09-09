@@ -131,6 +131,24 @@ describe('Test A — production path injects preference vector', () => {
     );
   });
 
+  it('toRecommendationRequest carries item embeddings without fetching them', () => {
+    const embeddings = { 'navy-tee': [1, 0, 0], 'navy-jeans': [1, 0, 0] };
+    const request = toRecommendationRequest(
+      { occasionKey: 'Casual', itemEmbeddings: embeddings },
+      3
+    );
+    expect(request.itemEmbeddings).toBe(embeddings);
+    const detailed = generateRankedOutfitsDetailed(
+      wardrobe(),
+      { occasionKey: 'Casual', itemEmbeddings: embeddings },
+      3
+    );
+    expect(detailed.ok).toBe(true);
+    if (!detailed.ok) return;
+    expect(detailed.metadata.embeddingsAvailable).toBe(true);
+    expect(detailed.source).toBe('local');
+  });
+
   it('generateRankedOutfitsDetailed marks personalizationUsed when the vector has signals', () => {
     const items = wardrobe();
     const navy = items.filter((entry) => entry.colors.includes('Navy'));

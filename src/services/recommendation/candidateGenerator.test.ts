@@ -97,4 +97,33 @@ describe('getCandidateItemsByCategory', () => {
     });
     expect(pool.byCategory['Shoes'].some((entry) => entry.id === 'anchor-shoe')).toBe(true);
   });
+
+  it('raises preliminary score for items similar to a must-include embedding', () => {
+    const anchor = item({ id: 'anchor-top', category: 'Tops' });
+    const similar = item({
+      id: 'similar-bottom',
+      category: 'Bottoms',
+      wornCount: 12,
+      lastWorn: new Date().toISOString(),
+    });
+    const far = item({
+      id: 'far-bottom',
+      category: 'Bottoms',
+      wornCount: 12,
+      lastWorn: new Date().toISOString(),
+    });
+    const embeddings = {
+      'anchor-top': [1, 0, 0],
+      'similar-bottom': [1, 0, 0],
+      'far-bottom': [0, 1, 0],
+    };
+    const pool = getCandidateItemsByCategory([anchor, similar, far], {
+      occasion: 'Casual',
+      mustIncludeItemIds: ['anchor-top'],
+      itemEmbeddings: embeddings,
+    });
+    expect(pool.preliminaryScores.get('similar-bottom') ?? 0).toBeGreaterThan(
+      pool.preliminaryScores.get('far-bottom') ?? 0
+    );
+  });
 });

@@ -247,6 +247,38 @@ describe('recommendOutfits', () => {
     expect(result.metadata.filtersRelaxed).toBe(true);
     expect(result.metadata.relaxationLevel).toBeGreaterThan(0);
   });
+
+  it('skips embedding features when no vectors are supplied', () => {
+    const result = recommendOutfits(
+      [
+        item({ id: 't1', category: 'Tops' }),
+        item({ id: 'b1', category: 'Bottoms' }),
+      ],
+      { occasion: 'Casual' }
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.metadata.embeddingsAvailable).toBe(false);
+    expect(result.metadata.embeddingsUsed).toBe(false);
+  });
+
+  it('records embeddingsUsed when item vectors cover composed pairs', () => {
+    const wardrobe = [
+      item({ id: 't1', category: 'Tops' }),
+      item({ id: 'b1', category: 'Bottoms' }),
+    ];
+    const result = recommendOutfits(wardrobe, {
+      occasion: 'Casual',
+      itemEmbeddings: {
+        t1: [1, 0, 0],
+        b1: [1, 0, 0],
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.metadata.embeddingsAvailable).toBe(true);
+    expect(result.metadata.embeddingsUsed).toBe(true);
+  });
 });
 
 describe('compatibility adapter', () => {

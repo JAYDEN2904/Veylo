@@ -13,6 +13,7 @@ import { itemMatchesSeason, getCurrentSeason } from './recommendation/constraint
 import { OCCASION_TAG_KEYWORDS, buildStyleBoostTerms } from './recommendation/styleTerms';
 import { hasBehavioralSignal } from './recommendation/feedback/recommendationFeedback';
 import type {
+  ItemEmbeddingMap,
   RankedOutfit,
   RecommendationMetadata,
   RecommendationRequest,
@@ -41,6 +42,11 @@ export interface OutfitGenerationContext {
   mustIncludeItemId?: string;
   /** Local preference vector. Must already be in memory — never fetched here. */
   preferenceVector?: UserPreferenceVector;
+  /**
+   * Optional item embeddings already loaded by the caller.
+   * Missing → embedding compatibility is skipped.
+   */
+  itemEmbeddings?: ItemEmbeddingMap;
   userId?: string;
 }
 
@@ -122,6 +128,7 @@ export function toRecommendationRequest(
     mustIncludeItemIds: mustIncludeItemIds.length > 0 ? mustIncludeItemIds : undefined,
     count,
     preferenceVector: context.preferenceVector,
+    itemEmbeddings: context.itemEmbeddings,
     userId: context.userId,
   };
 }
