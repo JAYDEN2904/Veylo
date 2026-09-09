@@ -12,6 +12,7 @@ export type {
   GenerationSource,
 } from './types';
 export { recommendOutfits } from './recommendationEngine';
+export { shouldAttemptEdgeFallback } from './generationPolicy';
 export { getCandidateItemsByCategory } from './candidateGenerator';
 export { applyHardConstraints, applySoftConstraints, relaxationOptions } from './constraintEngine';
 export { composeOutfits, selectCoresStructurally } from './outfitComposer';

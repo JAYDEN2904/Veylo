@@ -167,11 +167,16 @@ export function scoreWearDiversityDimension(item: ScoringItemInput): number {
   let score = 75;
 
   if (item.last_worn) {
-    const days = (Date.now() - new Date(item.last_worn).getTime()) / 86_400_000;
-    if (days < 3) score = 20;
-    else if (days < 14) score = 55;
-    else if (days < 30) score = 80;
-    else score = 95;
+    const wornAt = new Date(item.last_worn).getTime();
+    if (Number.isFinite(wornAt)) {
+      const days = (Date.now() - wornAt) / 86_400_000;
+      if (days < 3) score = 20;
+      else if (days < 14) score = 55;
+      else if (days < 30) score = 80;
+      else score = 95;
+    } else {
+      score = 90;
+    }
   } else {
     score = 90;
   }

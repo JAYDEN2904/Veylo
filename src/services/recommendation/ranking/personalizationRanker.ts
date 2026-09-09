@@ -30,7 +30,7 @@ function itemAffinity(
   vector: UserPreferenceVector,
   occasion?: string
 ): number {
-  const colorHits = item.colors.map((color) =>
+  const colorHits = (item.colors ?? []).map((color) =>
     lookup(vector.colors, normalizePreferenceKey(color))
   );
   const families = styleFamiliesForItem(item);

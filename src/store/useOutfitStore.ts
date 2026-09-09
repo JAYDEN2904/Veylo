@@ -31,6 +31,7 @@ import { usePreferenceStore } from './usePreferenceStore';
 import {
   recordGeneratedRecommendations,
   recordRecommendationEvent,
+  shouldAttemptEdgeFallback,
 } from '../services/recommendation';
 
 interface OutfitState {
@@ -208,7 +209,7 @@ export const useOutfitStore = create<OutfitState>()(
         }
 
         // Emergency only: Edge greedy assembler if the local engine throws.
-        if (!isSupabaseConfigured()) {
+        if (!shouldAttemptEdgeFallback('threw', isSupabaseConfigured())) {
           set({
             isGenerating: false,
             generatedOutfit: null,

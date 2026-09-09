@@ -27,6 +27,14 @@ function scoreWearDiversity(items: ClothingItem[]): number {
   return Math.round(total / items.length);
 }
 
+/** Ranking values must stay in 0–100. NaN would make sort order undefined. */
+function finiteUnitScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 100) return 100;
+  return value;
+}
+
 export function scoreCompleteOutfit(
   items: ClothingItem[],
   request: RecommendationRequest,
@@ -42,32 +50,34 @@ export function scoreCompleteOutfit(
   const resolved = resolveRankingWeights(request, weights);
 
   const breakdown: OutfitScoreBreakdown = {
-    compatibility: compat.compatibility,
-    colourHarmony: compat.colourHarmony,
-    formality: compat.formality,
-    occasionFit,
-    weatherFit,
-    styleMatch,
-    wearDiversity,
-    personalization: scorePersonalization(items, request),
+    compatibility: finiteUnitScore(compat.compatibility),
+    colourHarmony: finiteUnitScore(compat.colourHarmony),
+    formality: finiteUnitScore(compat.formality),
+    occasionFit: finiteUnitScore(occasionFit),
+    weatherFit: finiteUnitScore(weatherFit),
+    styleMatch: finiteUnitScore(styleMatch),
+    wearDiversity: finiteUnitScore(wearDiversity),
+    personalization: finiteUnitScore(scorePersonalization(items, request)),
     // Wear freshness only until Sprint 5 set-level novelty exists.
-    novelty: wearDiversity,
+    novelty: finiteUnitScore(wearDiversity),
     overall: 0,
   };
 
-  breakdown.overall = weightedOverall(
-    {
-      compatibility: breakdown.compatibility,
-      personalization: breakdown.personalization,
-      occasionFit: breakdown.occasionFit,
-      weatherFit: breakdown.weatherFit,
-      colourHarmony: breakdown.colourHarmony,
-      formality: breakdown.formality,
-      wearDiversity: breakdown.wearDiversity,
-      novelty: breakdown.novelty,
-    },
-    resolved,
-    { includeWeather: Boolean(request.weather) }
+  breakdown.overall = finiteUnitScore(
+    weightedOverall(
+      {
+        compatibility: breakdown.compatibility,
+        personalization: breakdown.personalization,
+        occasionFit: breakdown.occasionFit,
+        weatherFit: breakdown.weatherFit,
+        colourHarmony: breakdown.colourHarmony,
+        formality: breakdown.formality,
+        wearDiversity: breakdown.wearDiversity,
+        novelty: breakdown.novelty,
+      },
+      resolved,
+      { includeWeather: Boolean(request.weather) }
+    )
   );
 
   return breakdown;
