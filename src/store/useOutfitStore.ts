@@ -23,7 +23,7 @@ import {
   type GenerateOutfitRequest,
 } from '../services/functionsClient';
 import { isSupabaseConfigured, getSupabase } from '../services/supabase';
-import { fetchItemEmbeddings } from '../services/recommendation/itemEmbeddings';
+import { resolveItemEmbeddings } from '../services/recommendation/itemEmbeddings';
 import { useCalendarStore } from './useCalendarStore';
 import { updateClothingItem } from '../services/wardrobeRepository';
 import { namedColorsToHsl } from '../utils/hslColor';
@@ -139,13 +139,13 @@ export const useOutfitStore = create<OutfitState>()(
         let itemEmbeddings: Record<string, number[]> | undefined;
         if (isSupabaseConfigured() && items.length > 0) {
           try {
-            const loaded = await fetchItemEmbeddings(items.map((item) => item.id));
-            if (Object.keys(loaded).length > 0) {
-              itemEmbeddings = loaded;
+            const resolved = await resolveItemEmbeddings(items);
+            if (Object.keys(resolved.embeddings).length > 0) {
+              itemEmbeddings = resolved.embeddings;
             }
           } catch (err) {
             if (typeof __DEV__ !== 'undefined' && __DEV__) {
-              console.warn('[useOutfitStore] embeddings fetch failed', err);
+              console.warn('[useOutfitStore] embeddings resolve failed', err);
             }
           }
         }

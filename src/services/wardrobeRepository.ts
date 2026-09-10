@@ -2,6 +2,11 @@ import type { ClothingItem } from '../types';
 import type { HslColor } from '../utils/hslColor';
 import { hslToDisplayName, namedColorsToHsl, parseHslArray } from '../utils/hslColor';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+import {
+  onClothingItemDeleted,
+  onClothingRowCreated,
+  onEmbeddingSourceChanged,
+} from './recommendation/embeddings/embeddingLifecycle';
 
 export type ClothingRow = {
   id: string;
@@ -39,6 +44,25 @@ export type ClothingItemInsert = {
 };
 
 export type ClothingItemUpdate = Partial<Omit<ClothingRow, 'id' | 'user_id' | 'created_at'>>;
+
+export const EMBEDDING_SOURCE_PATCH_KEYS = [
+  'category',
+  'sub_category',
+  'colors',
+  'tags',
+  'material',
+  'pattern',
+  'season',
+  'gender_affinity',
+  'occasion_tags',
+  'image_path',
+] as const;
+
+export function clothingItemPatchAffectsEmbedding(
+  patch: ClothingItemUpdate
+): boolean {
+  return EMBEDDING_SOURCE_PATCH_KEYS.some((key) => patch[key] !== undefined);
+}
 
 export async function signedUrlForItemPath(path: string): Promise<string> {
   const supabase = getSupabase();
@@ -117,7 +141,9 @@ export async function createClothingItem(insert: ClothingItemInsert): Promise<Cl
     .select('*')
     .single();
   if (error) throw error;
-  return data as ClothingRow;
+  const row = data as ClothingRow;
+  onClothingRowCreated(row);
+  return row;
 }
 
 export async function fetchClothingItemById(id: string): Promise<ClothingRow | null> {
@@ -147,7 +173,11 @@ export async function updateClothingItem(
     .select('*')
     .single();
   if (error) throw error;
-  return data as ClothingRow;
+  const row = data as ClothingRow;
+  if (clothingItemPatchAffectsEmbedding(patch)) {
+    onEmbeddingSourceChanged(row);
+  }
+  return row;
 }
 
 /** Map client ClothingItem partial updates to a Supabase row patch. */
@@ -195,6 +225,8 @@ export async function deleteClothingItem(id: string): Promise<void> {
 
   const { error: deleteError } = await supabase.from('clothing_items').delete().eq('id', id);
   if (deleteError) throw deleteError;
+
+  onClothingItemDeleted(id);
 
   if (row.image_path) {
     const { error: storageError } = await supabase.storage

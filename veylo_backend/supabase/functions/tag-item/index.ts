@@ -9,6 +9,15 @@ import { createEmbedding } from '../_shared/openai.ts';
 import { logUsage } from '../_shared/usage.ts';
 import { guardEndpoint } from '../_shared/endpointGuard.ts';
 import { deriveGenderAffinity, deriveOccasionTags } from '../_shared/itemMetadata.ts';
+import {
+  EMBEDDING_DIMENSIONS,
+  EMBEDDING_MODEL,
+  EMBEDDING_VERSION,
+  buildEmbeddingInputText,
+  fingerprintEmbeddingSource,
+  isFiniteVector,
+  sourceFieldsFromItemRow,
+} from '../_shared/embeddingFingerprint.ts';
 
 interface TagItemPayload {
   item_id: string;
@@ -94,24 +103,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Vision API failed', detail: String(err) }, { status: 502 });
   }
 
-  const description = [
-    tags.category,
-    tags.sub_category,
-    tags.colors.join(' '),
-    tags.material_guess,
-    tags.pattern,
-    tags.style_tags.join(' '),
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  let embedding: number[] | null = null;
-  try {
-    embedding = await createEmbedding(description);
-  } catch (err) {
-    console.error('[tag-item] embedding failed (non-fatal)', err);
-  }
-
   const formalityScore = deriveFormalityScore(tags.category, tags.style_tags);
   const genderAffinity = deriveGenderAffinity({
     category: tags.category,
@@ -124,6 +115,32 @@ Deno.serve(async (req) => {
     styleTags: tags.style_tags,
     formalityScore,
   });
+
+  const sourceFields = sourceFieldsFromItemRow({
+    category: tags.category,
+    sub_category: tags.sub_category,
+    colors: tags.colors,
+    tags: tags.style_tags,
+    material: tags.material_guess,
+    pattern: tags.pattern,
+    season: tags.season,
+    gender_affinity: genderAffinity,
+    occasion_tags: occasionTags,
+    image_path: imagePath,
+  });
+  const description = buildEmbeddingInputText(sourceFields);
+  const sourceHash = fingerprintEmbeddingSource(sourceFields);
+
+  let embedding: number[] | null = null;
+  try {
+    embedding = await createEmbedding(description);
+    if (!isFiniteVector(embedding, EMBEDDING_DIMENSIONS)) {
+      console.error('[tag-item] embedding failed (non-fatal)', 'invalid vector');
+      embedding = null;
+    }
+  } catch (err) {
+    console.error('[tag-item] embedding failed (non-fatal)', err);
+  }
 
   const { data: updated, error: updateError } = await userClient
     .from('clothing_items')
@@ -164,7 +181,16 @@ Deno.serve(async (req) => {
         entity_type: 'item',
         entity_id: payload.item_id,
         embedding,
-        metadata: { description, confidence: tags.confidence },
+        metadata: {
+          description,
+          confidence: tags.confidence,
+          model: EMBEDDING_MODEL,
+          dimensions: embedding.length,
+          version: EMBEDDING_VERSION,
+          sourceHash,
+          source: 'tag-item',
+          updatedAt: new Date().toISOString(),
+        },
       },
       { onConflict: 'user_id,entity_type,entity_id' }
     );

@@ -1,6 +1,7 @@
 import type { ClothingItem, OutfitGenerationFailure, WeatherData } from '../../types';
+import type { DiversityConfig } from './ranking/diversityConfig';
 
-export const ENGINE_VERSION = '2.4.0';
+export const ENGINE_VERSION = '2.5.0';
 
 export type GenerationSource = 'local' | 'edge-fallback';
 
@@ -116,6 +117,8 @@ export interface RecommendEngineOptions {
   candidateLimits?: Partial<CandidateLimits>;
   maxComposed?: number;
   weights?: Partial<RankingWeights>;
+  /** Set false to skip MMR. Partial config overrides defaults. */
+  diversity?: Partial<DiversityConfig> | false;
 }
 
 export interface OutfitScoreBreakdown {
@@ -163,6 +166,10 @@ export interface RecommendationMetadata {
   embeddingsAvailable: boolean;
   /** At least one scored pair used cosine similarity. */
   embeddingsUsed: boolean;
+  diversityApplied: boolean;
+  diversityCandidatesConsidered: number;
+  diversitySelected: number;
+  diversityRejected: number;
 }
 
 export type RecommendationResult =

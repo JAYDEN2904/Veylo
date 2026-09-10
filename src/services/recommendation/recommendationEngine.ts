@@ -12,6 +12,7 @@ import {
   relaxationOptions,
 } from './constraintEngine';
 import { rankComposedOutfits } from './ranking/outfitRanker';
+import { rerankForDiversity } from './ranking/diversityRanker';
 import { hasItemEmbeddings, scoreOutfitEmbeddingCompatibility } from './compatibility/embeddingCompatibility';
 import {
   ENGINE_VERSION,
@@ -39,6 +40,10 @@ function emptyMetadata(partial: Partial<RecommendationMetadata> = {}): Recommend
     averageScore: 0,
     embeddingsAvailable: false,
     embeddingsUsed: false,
+    diversityApplied: false,
+    diversityCandidatesConsidered: 0,
+    diversitySelected: 0,
+    diversityRejected: 0,
     ...partial,
   };
 }
@@ -229,6 +234,18 @@ export function recommendOutfits(
   }
 
   const rankedAll = rankOutfits(composed, request, options.weights);
+  const diversityResult =
+    options.diversity === false
+      ? {
+          outfits: rankedAll.slice(0, count),
+          stats: {
+            diversityApplied: false,
+            diversityCandidatesConsidered: rankedAll.length,
+            diversitySelected: Math.min(count, rankedAll.length),
+            diversityRejected: 0,
+          },
+        }
+      : rerankForDiversity(rankedAll, count, request.itemEmbeddings, options.diversity);
   const topScore = rankedAll[0]?.score.overall ?? 0;
   const secondScore = rankedAll[1]?.score.overall ?? topScore;
   const confidence = computeConfidence({
@@ -238,7 +255,7 @@ export function recommendOutfits(
     scoreSpread: topScore - secondScore,
   });
 
-  const ranked = rankedAll.slice(0, count).map((outfit) => ({ ...outfit, confidence }));
+  const ranked = diversityResult.outfits.map((outfit) => ({ ...outfit, confidence }));
   const averageScore =
     ranked.length === 0
       ? 0
@@ -259,6 +276,13 @@ export function recommendOutfits(
       ranked: ranked.length,
       personalization: personalized ? 'behavioral' : 'cold-start',
       embeddings: embeddingsUsed ? 'used' : embeddingsAvailable ? 'available' : 'none',
+      diversity: diversityResult.stats.diversityApplied
+        ? {
+            considered: diversityResult.stats.diversityCandidatesConsidered,
+            selected: diversityResult.stats.diversitySelected,
+            rejected: diversityResult.stats.diversityRejected,
+          }
+        : 'skipped',
     });
   }
 
@@ -276,6 +300,10 @@ export function recommendOutfits(
       averageScore,
       embeddingsAvailable,
       embeddingsUsed,
+      diversityApplied: diversityResult.stats.diversityApplied,
+      diversityCandidatesConsidered: diversityResult.stats.diversityCandidatesConsidered,
+      diversitySelected: diversityResult.stats.diversitySelected,
+      diversityRejected: diversityResult.stats.diversityRejected,
     }),
   };
 }

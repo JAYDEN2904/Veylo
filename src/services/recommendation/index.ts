@@ -25,7 +25,11 @@ export {
   scoreEmbeddingPair,
   hasItemEmbeddings,
 } from './compatibility/embeddingCompatibility';
-export { fetchItemEmbeddings, parseEmbedding } from './itemEmbeddings';
+export { fetchItemEmbeddings, parseEmbedding, resolveItemEmbeddings } from './itemEmbeddings';
+export { rerankForDiversity } from './ranking/diversityRanker';
+export { calculateOutfitSimilarity } from './ranking/diversitySimilarity';
+export { isEmbeddingFresh } from './embeddings/embeddingFreshness';
+export { getEmbeddingObservability } from './embeddings/resolveItemEmbeddings';
 export {
   applyFeedbackToVector,
   emptyPreferenceVector,

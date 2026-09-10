@@ -10,6 +10,7 @@ import {
   updateClothingItem,
 } from '../services/wardrobeRepository';
 import { isSupabaseConfigured } from '../services/supabase';
+import { onClientItemUpdated, onClothingItemDeleted } from '../services/recommendation/embeddings/embeddingLifecycle';
 
 function ensureColorsHsl(items: ClothingItem[]): ClothingItem[] {
   return items.map((item) => ({
@@ -64,16 +65,24 @@ export const useWardrobeStore = create<WardrobeState>()(
         const previous = get().items.find((item) => item.id === id);
         if (!previous) return;
 
+        const merged = { ...previous, ...updates };
         set((state) => ({
-          items: state.items.map((item) => (item.id === id ? { ...item, ...updates } : item)),
+          items: state.items.map((item) => (item.id === id ? merged : item)),
         }));
 
-        if (!isSupabaseConfigured()) return;
+        if (!isSupabaseConfigured()) {
+          onClientItemUpdated(previous, merged);
+          return;
+        }
 
         try {
           const patch = clothingItemUpdatesToPatch(updates);
-          if (Object.keys(patch).length === 0) return;
+          if (Object.keys(patch).length === 0) {
+            onClientItemUpdated(previous, merged);
+            return;
+          }
           await updateClothingItem(id, patch);
+          // Remote source changes already scheduled in updateClothingItem.
         } catch (err) {
           set((state) => ({
             items: state.items.map((item) => (item.id === id ? previous : item)),
@@ -91,7 +100,10 @@ export const useWardrobeStore = create<WardrobeState>()(
           favoriteItemIds: state.favoriteItemIds.filter((fid) => fid !== id),
         }));
 
-        if (!isSupabaseConfigured()) return;
+        if (!isSupabaseConfigured()) {
+          onClothingItemDeleted(id);
+          return;
+        }
 
         try {
           await deleteClothingItem(id);
