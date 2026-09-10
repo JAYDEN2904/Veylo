@@ -15,6 +15,7 @@ import {
 } from './feedback/sessionRecorder';
 import { usePreferenceStore } from '../../store/usePreferenceStore';
 import { ENGINE_VERSION } from './types';
+import { MAX_RELEVANCE_DROP } from './ranking/diversityConfig';
 import {
   item,
   largeWardrobe,
@@ -63,8 +64,7 @@ function assertValidOutfit(items: ClothingItem[], wardrobe: ClothingItem[]): voi
   const wardrobeIds = new Set(wardrobe.map((entry) => entry.id));
   expect(items.every((entry) => wardrobeIds.has(entry.id))).toBe(true);
   const categories = new Set(items.map((entry) => entry.category));
-  const valid =
-    categories.has('Dresses') || (categories.has('Tops') && categories.has('Bottoms'));
+  const valid = categories.has('Dresses') || (categories.has('Tops') && categories.has('Bottoms'));
   expect(valid).toBe(true);
 }
 
@@ -92,7 +92,10 @@ describe('empty / invalid wardrobe', () => {
 
   it('archived-only wardrobe is empty_wardrobe', () => {
     const detailed = generateRankedOutfitsDetailed(
-      [item({ status: 'archived', category: 'Tops' }), item({ status: 'archived', category: 'Bottoms' })],
+      [
+        item({ status: 'archived', category: 'Tops' }),
+        item({ status: 'archived', category: 'Bottoms' }),
+      ],
       { occasionKey: 'Casual' }
     );
     expect(detailed.ok).toBe(false);
@@ -118,10 +121,7 @@ describe('Case A — minimal wardrobe', () => {
 
 describe('Case B — no shoes', () => {
   it('returns a top+bottom outfit and does not fabricate shoes', () => {
-    const closet = [
-      item({ id: 't', category: 'Tops' }),
-      item({ id: 'b', category: 'Bottoms' }),
-    ];
+    const closet = [item({ id: 't', category: 'Tops' }), item({ id: 'b', category: 'Bottoms' })];
     const detailed = generateRankedOutfitsDetailed(closet, { occasionKey: 'Casual' }, 3);
     expect(detailed.ok).toBe(true);
     if (!detailed.ok) return;
@@ -204,12 +204,12 @@ describe('Case F — accessories optional', () => {
     const composed = composeOutfits(getCandidateItemsByCategory(closet, { occasion: 'Casual' }), {
       occasion: 'Casual',
     });
-    expect(composed.some((outfit) => outfit.every((entry) => entry.category !== 'Accessories'))).toBe(
-      true
-    );
-    expect(composed.some((outfit) => outfit.some((entry) => entry.category === 'Accessories'))).toBe(
-      true
-    );
+    expect(
+      composed.some((outfit) => outfit.every((entry) => entry.category !== 'Accessories'))
+    ).toBe(true);
+    expect(
+      composed.some((outfit) => outfit.some((entry) => entry.category === 'Accessories'))
+    ).toBe(true);
 
     const detailed = generateRankedOutfitsDetailed(closet, { occasionKey: 'Casual' }, 5);
     expect(detailed.ok).toBe(true);
@@ -231,7 +231,9 @@ describe('Case G — near-duplicate items stay distinct', () => {
     const detailed = generateRankedOutfitsDetailed(closet, { occasionKey: 'Casual' }, 5);
     expect(detailed.ok).toBe(true);
     if (!detailed.ok) return;
-    const used = new Set(detailed.outfits.flatMap((outfit) => outfit.items.map((entry) => entry.id)));
+    const used = new Set(
+      detailed.outfits.flatMap((outfit) => outfit.items.map((entry) => entry.id))
+    );
     expect(used.has('tee-a') || used.has('tee-b')).toBe(true);
     detailed.outfits.forEach((outfit) => assertValidOutfit(outfit.items, closet));
   });
@@ -293,9 +295,9 @@ describe('must-include', () => {
     );
     expect(detailed.ok).toBe(true);
     if (!detailed.ok) return;
-    expect(detailed.outfits.every((outfit) => outfit.items.some((entry) => entry.id === 'rt-navy-tee'))).toBe(
-      true
-    );
+    expect(
+      detailed.outfits.every((outfit) => outfit.items.some((entry) => entry.id === 'rt-navy-tee'))
+    ).toBe(true);
   });
 
   it('rejects a must-include id that is not in the wardrobe', () => {
@@ -313,7 +315,9 @@ describe('determinism', () => {
     const closet = realisticWardrobe();
     const vector = applyFeedbackToVector(emptyPreferenceVector(), {
       eventType: 'wear',
-      items: closet.filter((entry) => entry.id.startsWith('rt-navy') || entry.id === 'rb-navy-jeans'),
+      items: closet.filter(
+        (entry) => entry.id.startsWith('rt-navy') || entry.id === 'rb-navy-jeans'
+      ),
     });
     const context = {
       occasionKey: 'Casual' as const,
@@ -351,13 +355,29 @@ describe('determinism', () => {
 });
 
 describe('ranking + personalization sanity', () => {
-  it('returns outfits in descending overall score', () => {
-    const result = recommendOutfits(realisticWardrobe(), { occasion: 'Casual', count: 5 });
+  it('keeps relevance ranking descending when diversity is off', () => {
+    const result = recommendOutfits(
+      realisticWardrobe(),
+      { occasion: 'Casual', count: 5 },
+      { diversity: false }
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const scores = result.recommendations.map((rec) => rec.score.overall);
     const sorted = [...scores].sort((left, right) => right - left);
     expect(scores).toEqual(sorted);
+    result.recommendations.forEach((rec) => finiteScores(rec.score));
+  });
+
+  it('protects the relevance winner and relevance floor after diversity', () => {
+    const result = recommendOutfits(realisticWardrobe(), { occasion: 'Casual', count: 5 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const scores = result.recommendations.map((rec) => rec.score.overall);
+    expect(scores[0]).toBe(Math.max(...scores));
+    for (const score of scores) {
+      expect(score).toBeGreaterThanOrEqual(scores[0] - MAX_RELEVANCE_DROP);
+    }
     result.recommendations.forEach((rec) => finiteScores(rec.score));
   });
 
@@ -500,9 +520,9 @@ describe('Sprint 3.2.1 acceptance loop', () => {
     const session = usePreferenceStore.getState().lastSession;
     expect(session?.engineVersion).toBe(ENGINE_VERSION);
     expect(session?.occasion).toBe('Work');
-    expect(usePreferenceStore.getState().recentEvents.filter((event) => event.eventType === 'impression')).toHaveLength(
-      first.outfits.length
-    );
+    expect(
+      usePreferenceStore.getState().recentEvents.filter((event) => event.eventType === 'impression')
+    ).toHaveLength(first.outfits.length);
 
     const chosen = first.outfits[0];
     recordRecommendationEvent({
