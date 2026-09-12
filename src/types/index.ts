@@ -194,6 +194,24 @@ export interface Outfit {
   /** Which generator produced this look. Optional so library outfits stay valid. */
   generationSource?: 'local' | 'edge-fallback';
   engineVersion?: string;
+  /** 0-based position in the generated recommendation list. */
+  recommendationPosition?: number;
+  /**
+   * Engine score provenance. Present on generated recommendations only.
+   * Shape matches `OutfitScoreBreakdown` without importing the engine module.
+   */
+  scoreBreakdown?: {
+    overall: number;
+    compatibility: number;
+    personalization: number;
+    occasionFit: number;
+    weatherFit: number;
+    colourHarmony: number;
+    formality: number;
+    wearDiversity: number;
+    novelty: number;
+    styleMatch?: number;
+  };
 }
 
 export type OutfitGenerationFailureReason =

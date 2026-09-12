@@ -1,7 +1,10 @@
 import type { ClothingItem, OutfitGenerationFailure, WeatherData } from '../../types';
 import type { DiversityConfig } from './ranking/diversityConfig';
 
-export const ENGINE_VERSION = '2.5.0';
+export const ENGINE_VERSION = '2.6.0';
+
+/** Schema version for the local preference vector. Not a learned model. */
+export const PREFERENCE_VECTOR_VERSION = '1.0.0';
 
 export type GenerationSource = 'local' | 'edge-fallback';
 
@@ -19,7 +22,9 @@ export type RecommendationReasonType =
   | 'personalization'
   | 'novelty'
   | 'wardrobe'
-  | 'compatibility';
+  | 'compatibility'
+  | 'formality'
+  | 'diversity';
 
 export type CanonicalSlot = 'Tops' | 'Bottoms' | 'Shoes' | 'Outerwear' | 'Accessories' | 'Dresses';
 
@@ -140,6 +145,8 @@ export interface RecommendationReason {
   type: RecommendationReasonType;
   text: string;
   score?: number;
+  /** 0–1 internal confidence. Not shown in the product UI. */
+  confidence?: number;
 }
 
 export interface RankedOutfit {
@@ -155,6 +162,8 @@ export interface RecommendationMetadata {
   candidateCount: number;
   filteredCount: number;
   composedCount: number;
+  /** Ranked composed outfits before diversity selection. */
+  rankedCount: number;
   finalCount: number;
   generatedAt: string;
   engineVersion: string;
@@ -166,10 +175,43 @@ export interface RecommendationMetadata {
   embeddingsAvailable: boolean;
   /** At least one scored pair used cosine similarity. */
   embeddingsUsed: boolean;
+  embeddingModel?: string;
+  embeddingVersion?: string;
   diversityApplied: boolean;
   diversityCandidatesConsidered: number;
   diversitySelected: number;
   diversityRejected: number;
+  personalizationUsed: boolean;
+  coldStart: boolean;
+}
+
+/** Lightweight pipeline trace for tests and __DEV__ logs. No wardrobe contents. */
+export interface RecommendationTrace {
+  engineVersion: string;
+  candidateCount: number;
+  composedCandidateCount: number;
+  rankedCandidateCount: number;
+  diversityEnabled: boolean;
+  diversityCandidateCount?: number;
+  finalRecommendationCount: number;
+  personalizationUsed: boolean;
+  coldStart: boolean;
+}
+
+export function toRecommendationTrace(metadata: RecommendationMetadata): RecommendationTrace {
+  return {
+    engineVersion: metadata.engineVersion,
+    candidateCount: metadata.candidateCount,
+    composedCandidateCount: metadata.composedCount,
+    rankedCandidateCount: metadata.rankedCount,
+    diversityEnabled: metadata.diversityApplied,
+    diversityCandidateCount: metadata.diversityApplied
+      ? metadata.diversityCandidatesConsidered
+      : undefined,
+    finalRecommendationCount: metadata.finalCount,
+    personalizationUsed: metadata.personalizationUsed,
+    coldStart: metadata.coldStart,
+  };
 }
 
 export type RecommendationResult =

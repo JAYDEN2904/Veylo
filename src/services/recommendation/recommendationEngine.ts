@@ -14,6 +14,8 @@ import {
 import { rankComposedOutfits } from './ranking/outfitRanker';
 import { rerankForDiversity } from './ranking/diversityRanker';
 import { hasItemEmbeddings, scoreOutfitEmbeddingCompatibility } from './compatibility/embeddingCompatibility';
+import { hasBehavioralSignal } from './feedback/recommendationFeedback';
+import { EMBEDDING_MODEL, EMBEDDING_VERSION } from './embeddings/embeddingConfig';
 import {
   ENGINE_VERSION,
   type OutfitScoreBreakdown,
@@ -31,6 +33,7 @@ function emptyMetadata(partial: Partial<RecommendationMetadata> = {}): Recommend
     candidateCount: 0,
     filteredCount: 0,
     composedCount: 0,
+    rankedCount: 0,
     finalCount: 0,
     generatedAt: new Date().toISOString(),
     engineVersion: ENGINE_VERSION,
@@ -44,6 +47,8 @@ function emptyMetadata(partial: Partial<RecommendationMetadata> = {}): Recommend
     diversityCandidatesConsidered: 0,
     diversitySelected: 0,
     diversityRejected: 0,
+    personalizationUsed: false,
+    coldStart: true,
     ...partial,
   };
 }
@@ -264,17 +269,15 @@ export function recommendOutfits(
   const embeddingsUsed =
     embeddingsAvailable &&
     composed.some((outfit) => scoreOutfitEmbeddingCompatibility(outfit, request.itemEmbeddings).used);
+  const personalizationUsed = hasBehavioralSignal(request.preferenceVector);
 
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
-    const personalized = ranked.some(
-      (outfit) => outfit.score.personalization !== outfit.score.styleMatch
-    );
     console.log('[recommendation]', {
       engineVersion: ENGINE_VERSION,
       candidates: candidates.totalCandidates,
       composed: composed.length,
-      ranked: ranked.length,
-      personalization: personalized ? 'behavioral' : 'cold-start',
+      ranked: rankedAll.length,
+      personalization: personalizationUsed ? 'behavioral' : 'cold-start',
       embeddings: embeddingsUsed ? 'used' : embeddingsAvailable ? 'available' : 'none',
       diversity: diversityResult.stats.diversityApplied
         ? {
@@ -293,6 +296,7 @@ export function recommendOutfits(
       candidateCount: candidates.totalCandidates,
       filteredCount: feasible.pool.length,
       composedCount: composed.length,
+      rankedCount: rankedAll.length,
       finalCount: ranked.length,
       filtersRelaxed: feasible.filtersRelaxed,
       relaxationLevel: feasible.level,
@@ -300,10 +304,14 @@ export function recommendOutfits(
       averageScore,
       embeddingsAvailable,
       embeddingsUsed,
+      embeddingModel: embeddingsAvailable ? EMBEDDING_MODEL : undefined,
+      embeddingVersion: embeddingsAvailable ? EMBEDDING_VERSION : undefined,
       diversityApplied: diversityResult.stats.diversityApplied,
       diversityCandidatesConsidered: diversityResult.stats.diversityCandidatesConsidered,
       diversitySelected: diversityResult.stats.diversitySelected,
       diversityRejected: diversityResult.stats.diversityRejected,
+      personalizationUsed,
+      coldStart: !personalizationUsed,
     }),
   };
 }

@@ -5,8 +5,13 @@ import {
   type LocalRecommendationEvent,
   type LocalRecommendationSession,
 } from '../../../store/usePreferenceStore';
-import type { RecommendationEventType } from '../types';
-import { ENGINE_VERSION } from '../types';
+import type { GenerationSource, RecommendationEventType, RecommendationMetadata } from '../types';
+import { ENGINE_VERSION, PREFERENCE_VECTOR_VERSION } from '../types';
+import {
+  buildRecommendationAnalyticsMetadata,
+  isRecommendationEventType,
+  sanitizeAnalyticsMetadata,
+} from '../analytics/recommendationAnalytics';
 
 export interface GeneratedRecommendationCapture {
   outfits: Outfit[];
@@ -16,6 +21,10 @@ export interface GeneratedRecommendationCapture {
   styleContext?: unknown;
   requestContext?: Record<string, unknown>;
   engineVersion?: string;
+  generationSource?: GenerationSource;
+  personalizationUsed?: boolean;
+  coldStart?: boolean;
+  metadata?: RecommendationMetadata;
 }
 
 export interface RecommendationEventInput {
@@ -28,6 +37,15 @@ export interface RecommendationEventInput {
   position?: number;
   metadata?: Record<string, unknown>;
 }
+
+const SESSION_DEDUPE_TYPES: ReadonlySet<RecommendationEventType> = new Set([
+  'impression',
+  'view',
+  'wear',
+  'save',
+]);
+
+const REQUIRES_OUTFIT_ID: ReadonlySet<RecommendationEventType> = new Set(['impression', 'view']);
 
 function persistSessionAndEvents(
   session: LocalRecommendationSession | null,
@@ -84,7 +102,7 @@ function persistSessionAndEvents(
 }
 
 /**
- * Event coverage (Sprint 3.1):
+ * Event coverage (Sprint 3.1 + 5):
  * impression — generateOutfit (local + edge) via recordGeneratedRecommendations
  * view       — OutfitResultScreen mount
  * like       — recordOutfitFeedback('liked') — no dedicated like button yet
@@ -99,45 +117,159 @@ function persistSessionAndEvents(
  *
  * Start a session and record impressions for ranked results. Local only on
  * the generate path — remote writes are best-effort and never awaited.
+ *
+ * Failed generation must not call this helper. Empty outfit lists are a no-op.
  */
 export function recordGeneratedRecommendations(input: GeneratedRecommendationCapture): void {
+  if (input.outfits.length === 0) return;
+
   const store = usePreferenceStore.getState();
-  const engineVersion = input.engineVersion ?? ENGINE_VERSION;
+  const engineVersion = input.engineVersion ?? input.metadata?.engineVersion ?? ENGINE_VERSION;
+  const generationSource = input.generationSource ?? 'local';
+  const personalizationUsed =
+    input.personalizationUsed ?? input.metadata?.personalizationUsed ?? false;
+  const coldStart = input.coldStart ?? input.metadata?.coldStart ?? !personalizationUsed;
+
   const session = store.startSession({
     userId: input.userId,
     occasion: input.occasion,
-    weather: input.weather,
-    styleContext: input.styleContext,
+    weather: compactSessionWeather(input.weather),
+    styleContext: Array.isArray(input.styleContext) ? input.styleContext : input.styleContext,
     requestContext: input.requestContext ?? { occasion: input.occasion },
     engineVersion,
   });
 
-  const events = input.outfits.map((outfit, index) =>
-    store.applyEvent({
+  const events: LocalRecommendationEvent[] = [];
+  const seenOutfitIds = new Set<string>();
+
+  input.outfits.forEach((outfit, index) => {
+    if (!outfit?.id || outfit.items.length === 0) return;
+    if (seenOutfitIds.has(outfit.id)) return;
+    seenOutfitIds.add(outfit.id);
+
+    const position =
+      typeof outfit.recommendationPosition === 'number' && outfit.recommendationPosition >= 0
+        ? outfit.recommendationPosition
+        : index;
+    const metadata = sanitizeAnalyticsMetadata(
+      buildRecommendationAnalyticsMetadata({
+        engineVersion,
+        generationSource,
+        occasion: input.occasion ?? outfit.occasion,
+        weather: input.weather,
+        styleContext: input.styleContext,
+        personalizationUsed,
+        coldStart,
+        preferenceVectorVersion: PREFERENCE_VECTOR_VERSION,
+        embeddingModel: input.metadata?.embeddingModel,
+        embeddingVersion: input.metadata?.embeddingVersion,
+        embeddingsUsed: input.metadata?.embeddingsUsed,
+        scoreBreakdown: outfit.scoreBreakdown,
+        recommendationPosition: position,
+        candidateCount: input.metadata?.candidateCount,
+        composedCandidateCount: input.metadata?.composedCount,
+        rankedCandidateCount: input.metadata?.rankedCount,
+        diversityCandidateCount: input.metadata?.diversityCandidatesConsidered,
+        diversityApplied: input.metadata?.diversityApplied,
+        diversitySelected: Boolean(input.metadata?.diversityApplied && position > 0),
+        explanationReasons: outfit.fitReasoning,
+      })
+    );
+
+    const event = store.applyEvent({
       eventType: 'impression',
       items: outfit.items,
       occasion: input.occasion ?? outfit.occasion,
       outfitId: outfit.id,
       recommendationId: outfit.id,
-      position: index,
-    })
-  );
+      position,
+      metadata,
+    });
+    events.push(event);
+  });
 
   persistSessionAndEvents(session, events);
 }
 
-export function recordRecommendationEvent(input: RecommendationEventInput): void {
+export function recordRecommendationEvent(
+  input: RecommendationEventInput
+): LocalRecommendationEvent | null {
+  if (!isRecommendationEventType(input.eventType)) return null;
+  if (REQUIRES_OUTFIT_ID.has(input.eventType) && !input.outfitId) return null;
+  if (
+    input.position !== undefined &&
+    (typeof input.position !== 'number' || !Number.isFinite(input.position) || input.position < 0)
+  ) {
+    return null;
+  }
+
   const store = usePreferenceStore.getState();
-  if (input.eventType === 'view' && input.outfitId) {
-    const sessionId = store.lastSession?.id ?? null;
-    const alreadyViewed = store.recentEvents.some(
+  const sessionId = store.lastSession?.id ?? null;
+
+  if (SESSION_DEDUPE_TYPES.has(input.eventType) && input.outfitId) {
+    const alreadyRecorded = store.recentEvents.some(
       (event) =>
-        event.eventType === 'view' &&
+        event.eventType === input.eventType &&
         event.outfitId === input.outfitId &&
         event.sessionId === sessionId
     );
-    if (alreadyViewed) return;
+    if (alreadyRecorded) return null;
   }
-  const event = store.applyEvent(input);
+
+  const inherited = inheritImpressionMetadata(store.recentEvents, input.outfitId);
+  const metadata = sanitizeAnalyticsMetadata({
+    ...inherited,
+    ...(input.metadata ?? {}),
+  });
+
+  const event = store.applyEvent({
+    ...input,
+    position: input.position ?? inheritedPosition(inherited, input.outfitId, store.recentEvents),
+    metadata,
+  });
   persistSessionAndEvents(store.lastSession, [event]);
+  return event;
+}
+
+function inheritImpressionMetadata(
+  events: LocalRecommendationEvent[],
+  outfitId?: string
+): Record<string, unknown> {
+  if (!outfitId) return {};
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.eventType === 'impression' && event.outfitId === outfitId) {
+      return event.metadata ?? {};
+    }
+  }
+  return {};
+}
+
+function inheritedPosition(
+  metadata: Record<string, unknown>,
+  outfitId: string | undefined,
+  events: LocalRecommendationEvent[]
+): number | undefined {
+  const fromMetadata = metadata.recommendationPosition;
+  if (typeof fromMetadata === 'number' && fromMetadata >= 0) return fromMetadata;
+  if (!outfitId) return undefined;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.eventType === 'impression' && event.outfitId === outfitId) {
+      return event.position;
+    }
+  }
+  return undefined;
+}
+
+function compactSessionWeather(weather: unknown): unknown {
+  if (!weather || typeof weather !== 'object') return weather;
+  const source = weather as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  if (typeof source.temperature === 'number') next.temperature = source.temperature;
+  if (typeof source.condition === 'string') next.condition = source.condition;
+  if (typeof source.precipitationProbability === 'number') {
+    next.precipitationProbability = source.precipitationProbability;
+  }
+  return Object.keys(next).length > 0 ? next : weather;
 }

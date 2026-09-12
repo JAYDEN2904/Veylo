@@ -20,20 +20,26 @@ export interface DiversityRerankResult {
   stats: DiversityRerankStats;
 }
 
-function alternativeReason(): RecommendationReason {
-  return {
-    type: 'wardrobe',
-    text: 'A different combination for the same occasion.',
-  };
-}
+const DIVERSITY_REASON: RecommendationReason = {
+  type: 'diversity',
+  text: 'An alternative combination for the same occasion.',
+};
 
 function withAlternativeReason(outfit: RankedOutfit, maxSimilarity: number): RankedOutfit {
   if (maxSimilarity >= 0.55) return outfit;
-  if (outfit.reasons.some((reason) => reason.text === alternativeReason().text)) return outfit;
-  if (outfit.reasons.length >= 4) return outfit;
+  if (outfit.reasons.some((reason) => reason.type === 'diversity')) return outfit;
+  const withoutFallback = outfit.reasons.filter((reason) => reason.type !== 'wardrobe');
+  const kept = withoutFallback.slice(0, 2);
   return {
     ...outfit,
-    reasons: [...outfit.reasons, alternativeReason()],
+    reasons: [
+      ...kept,
+      {
+        ...DIVERSITY_REASON,
+        score: outfit.score.overall,
+        confidence: 0.45,
+      },
+    ],
   };
 }
 

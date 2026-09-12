@@ -10,12 +10,13 @@ import { scoreOutfitWeather } from '../compatibility/weatherCompatibility';
 import { scoreOutfitStyleMatch } from '../compatibility/styleCompatibility';
 import { scorePersonalization } from './personalizationRanker';
 import { resolveRankingWeights, weightedOverall } from '../rankingWeights';
+import { hasBehavioralSignal } from '../feedback/recommendationFeedback';
+import { generateExplanations } from '../explanations/explanationGenerator';
 import type {
   OutfitScoreBreakdown,
   RankedOutfit,
   RankingWeights,
   RecommendationReason,
-  RecommendationReasonType,
   RecommendationRequest,
 } from '../types';
 
@@ -83,55 +84,19 @@ export function scoreCompleteOutfit(
   return breakdown;
 }
 
-function inferReasonType(text: string): RecommendationReasonType {
-  const lower = text.toLowerCase();
-  if (lower.includes('keep choosing') || lower.includes('you keep')) {
-    return 'personalization';
-  }
-  if (lower.includes('weather') || lower.includes('warm') || lower.includes('cold')) {
-    return 'weather';
-  }
-  if (lower.includes('colour') || lower.includes('color')) return 'colour';
-  if (lower.includes('formal')) return 'compatibility';
-  if (lower.includes('worn') || lower.includes('under-worn')) return 'novelty';
-  if (lower.includes('office') || lower.includes('date') || lower.includes('everyday')) {
-    return 'occasion';
-  }
-  if (lower.includes('style') || lower.includes('minimal')) return 'style';
-  return 'wardrobe';
-}
-
-export function reasonsFromBreakdown(breakdown: OutfitScoreBreakdown): RecommendationReason[] {
-  const lines: string[] = [];
-  if (breakdown.compatibility >= 80) {
-    lines.push('Pieces work together as a complete outfit.');
-  } else if (breakdown.formality < 45) {
-    lines.push('Formality levels clash across the set.');
-  }
-  if (breakdown.colourHarmony >= 80) {
-    lines.push('Colours sit comfortably next to each other.');
-  }
-  if (breakdown.occasionFit >= 80) {
-    lines.push('The full look fits the occasion, not just one item.');
-  }
-  if (breakdown.weatherFit >= 80) {
-    lines.push('Suited to today’s weather as a complete outfit.');
-  }
-  if (breakdown.wearDiversity >= 85) {
-    lines.push('Gives under-worn pieces a turn.');
-  }
-  if (breakdown.personalization >= breakdown.styleMatch + 6) {
-    lines.push('Matches colours and styles you keep choosing.');
-  }
-  if (lines.length === 0) {
-    lines.push('A balanced look pulled from your wardrobe.');
-  }
-
-  return lines.slice(0, 4).map((text) => ({
-    type: inferReasonType(text),
-    text,
-    score: breakdown.overall,
-  }));
+export function reasonsFromBreakdown(
+  breakdown: OutfitScoreBreakdown,
+  request: RecommendationRequest = {}
+): RecommendationReason[] {
+  const personalizationUsed = hasBehavioralSignal(request.preferenceVector);
+  return generateExplanations(breakdown, {
+    occasion: request.occasion,
+    weather: request.weather,
+    stylePreferences: request.stylePreferences,
+    styleIds: request.styleIds,
+    personalizationUsed,
+    coldStart: !personalizationUsed,
+  });
 }
 
 function createOutfitId(index: number): string {
@@ -149,7 +114,7 @@ export function rankComposedOutfits(
       id: createOutfitId(index),
       items,
       score: breakdown,
-      reasons: reasonsFromBreakdown(breakdown),
+      reasons: reasonsFromBreakdown(breakdown, request),
       archetype: 'balanced' as const,
       confidence: 70,
     };

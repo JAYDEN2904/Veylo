@@ -11,7 +11,6 @@ import { scoreOutfitDimensions, clothingItemToScoringInput } from './outfitDimen
 import { recommendOutfits } from './recommendation/recommendationEngine';
 import { itemMatchesSeason, getCurrentSeason } from './recommendation/constraintEngine';
 import { OCCASION_TAG_KEYWORDS, buildStyleBoostTerms } from './recommendation/styleTerms';
-import { hasBehavioralSignal } from './recommendation/feedback/recommendationFeedback';
 import type {
   ItemEmbeddingMap,
   RankedOutfit,
@@ -145,7 +144,8 @@ function outfitTagsFor(items: ClothingItem[], occasionKey: string): string[] {
 function rankedToOutfit(
   ranked: RankedOutfit,
   context: OutfitGenerationContext,
-  usedRelaxedFilters: boolean
+  usedRelaxedFilters: boolean,
+  position: number
 ): Outfit {
   const occasionKey = context.occasionKey ?? 'Casual';
   return {
@@ -165,6 +165,19 @@ function rankedToOutfit(
     styleMatchScore: ranked.score.styleMatch,
     generationSource: 'local',
     engineVersion: ENGINE_VERSION,
+    recommendationPosition: position,
+    scoreBreakdown: {
+      overall: ranked.score.overall,
+      compatibility: ranked.score.compatibility,
+      personalization: ranked.score.personalization,
+      occasionFit: ranked.score.occasionFit,
+      weatherFit: ranked.score.weatherFit,
+      colourHarmony: ranked.score.colourHarmony,
+      formality: ranked.score.formality,
+      wearDiversity: ranked.score.wearDiversity,
+      novelty: ranked.score.novelty,
+      styleMatch: ranked.score.styleMatch,
+    },
   };
 }
 
@@ -252,8 +265,8 @@ export function generateRankedOutfitsDetailed(
     };
   }
 
-  const outfits = result.recommendations.map((ranked) =>
-    rankedToOutfit(ranked, context, result.metadata.filtersRelaxed)
+  const outfits = result.recommendations.map((ranked, index) =>
+    rankedToOutfit(ranked, context, result.metadata.filtersRelaxed, index)
   );
 
   return {
@@ -261,8 +274,8 @@ export function generateRankedOutfitsDetailed(
     outfits,
     usedRelaxedFilters: result.metadata.filtersRelaxed,
     metadata: result.metadata,
-    personalizationUsed: hasBehavioralSignal(context.preferenceVector),
-    coldStart: !hasBehavioralSignal(context.preferenceVector),
+    personalizationUsed: result.metadata.personalizationUsed,
+    coldStart: result.metadata.coldStart,
     source: 'local',
     engineVersion: ENGINE_VERSION,
   };

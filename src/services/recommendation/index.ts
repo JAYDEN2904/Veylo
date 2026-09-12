@@ -1,4 +1,4 @@
-export { ENGINE_VERSION, DEFAULT_CANDIDATE_LIMITS, DEFAULT_RANKING_WEIGHTS } from './types';
+export { ENGINE_VERSION, DEFAULT_CANDIDATE_LIMITS, DEFAULT_RANKING_WEIGHTS, PREFERENCE_VECTOR_VERSION, toRecommendationTrace } from './types';
 export type {
   RecommendationRequest,
   RecommendationResult,
@@ -6,6 +6,7 @@ export type {
   OutfitScoreBreakdown,
   RecommendationReason,
   RecommendationMetadata,
+  RecommendationTrace,
   RankingWeights,
   UserPreferenceVector,
   ItemEmbeddingMap,
@@ -40,3 +41,11 @@ export {
   recordGeneratedRecommendations,
   recordRecommendationEvent,
 } from './feedback/sessionRecorder';
+export { generateExplanations } from './explanations/explanationGenerator';
+export {
+  calculateRecommendationFunnel,
+  aggregateEventsByPosition,
+  aggregateEventsByContext,
+  buildRecommendationAnalyticsMetadata,
+} from './analytics/recommendationAnalytics';
+

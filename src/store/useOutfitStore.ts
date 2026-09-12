@@ -217,6 +217,10 @@ export const useOutfitStore = create<OutfitState>()(
               source: detailed.source,
             },
             engineVersion: detailed.engineVersion,
+            generationSource: detailed.source,
+            personalizationUsed: detailed.personalizationUsed,
+            coldStart: detailed.coldStart,
+            metadata: detailed.metadata,
           });
           return;
         } catch (err) {
@@ -306,6 +310,9 @@ export const useOutfitStore = create<OutfitState>()(
             styleContext: flowStyleIds,
             requestContext: { occasion: occasionKey, source: 'edge-fallback' },
             engineVersion: 'edge-fallback',
+            generationSource: 'edge-fallback',
+            personalizationUsed: false,
+            coldStart: true,
           });
         } catch (err) {
           if (typeof __DEV__ !== 'undefined' && __DEV__) {
