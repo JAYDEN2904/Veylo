@@ -37,8 +37,14 @@ describe('golden recommendation dataset', () => {
     expect(second).toEqual(metrics);
   });
 
-  it('meets hard-constraint and duplicate regression thresholds', () => {
-    expect(metrics.constraintPassRate).toBeGreaterThanOrEqual(EVALUATION_THRESHOLDS.constraintPassRate);
+  it('meets hard-constraint, score-threshold, scenario, and duplicate regression thresholds', () => {
+    expect(metrics.hardConstraintPassRate).toBeGreaterThanOrEqual(
+      EVALUATION_THRESHOLDS.hardConstraintPassRate
+    );
+    expect(metrics.scoreThresholdPassRate).toBeGreaterThanOrEqual(
+      EVALUATION_THRESHOLDS.scoreThresholdPassRate
+    );
+    expect(metrics.scenarioPassRate).toBeGreaterThanOrEqual(EVALUATION_THRESHOLDS.scenarioPassRate);
     expect(metrics.duplicateRate).toBe(EVALUATION_THRESHOLDS.duplicateRate);
   });
 
@@ -55,8 +61,9 @@ describe('golden recommendation dataset', () => {
     const report = formatEvaluationReport(metrics);
     expect(report).toContain('Veylo Recommendation Evaluation');
     expect(report).toContain(`Scenarios: ${metrics.scenarioCount}`);
-    expect(report).toContain('Constraint pass rate:');
-    // eslint-disable-next-line no-console
+    expect(report).toContain('Hard constraint pass rate:');
+    expect(report).toContain('Score threshold pass rate:');
+    expect(report).toContain('Overall scenario pass rate:');
     console.log(`\n${report}\n`);
   });
 });

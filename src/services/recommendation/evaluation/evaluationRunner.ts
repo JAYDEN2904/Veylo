@@ -1,4 +1,10 @@
+import type { ClothingItem } from '../../../types';
 import { normalizeCategory } from '../../outfitCategoryNormalize';
+import { normalizePreferenceKey } from '../feedback/recommendationFeedback';
+import {
+  styleFamiliesForItem,
+  styleFamiliesMatchingPreference,
+} from '../compatibility/styleCompatibility';
 import { recommendOutfits } from '../recommendationEngine';
 import { calculateOutfitSimilarity, outfitItemSignature } from '../ranking/diversitySimilarity';
 import type { RankedOutfit } from '../types';
@@ -15,10 +21,15 @@ function categoriesOf(outfit: RankedOutfit): string[] {
   return outfit.items.map((item) => normalizeCategory(item.category));
 }
 
-function coloursOf(outfit: RankedOutfit): string[] {
-  return outfit.items.flatMap((item) => item.colors.map((color) => color.trim().toLowerCase()));
+function colourKeysOf(items: ClothingItem[]): string[] {
+  return items.flatMap((item) => item.colors.map((color) => normalizePreferenceKey(color)));
 }
 
+/**
+ * Hard requirements only: wardrobe membership, coverage, must-include/exclude,
+ * required/forbidden categories, forbidden colours. Does not include minScore
+ * or preferred colour/style.
+ */
 function satisfiesHardConstraints(outfit: RankedOutfit, scenario: GoldenScenario): boolean {
   const wardrobeIds = new Set(scenario.wardrobe.map((item) => item.id));
   if (outfit.items.some((item) => !wardrobeIds.has(item.id))) return false;
@@ -42,11 +53,33 @@ function satisfiesHardConstraints(outfit: RankedOutfit, scenario: GoldenScenario
   if (forbiddenCategories.some((category) => categories.has(category))) return false;
 
   const forbiddenColours = (scenario.expectations.forbiddenColours ?? []).map((color) =>
-    color.trim().toLowerCase()
+    normalizePreferenceKey(color)
   );
-  if (forbiddenColours.some((color) => coloursOf(outfit).includes(color))) return false;
+  if (forbiddenColours.some((color) => colourKeysOf(outfit.items).includes(color))) return false;
 
   return true;
+}
+
+/** Soft: at least one garment uses a colour key from the preference list. */
+export function outfitMatchesPreferredColours(
+  items: ClothingItem[],
+  preferredColours: string[]
+): boolean {
+  const wanted = new Set(
+    preferredColours.map((color) => normalizePreferenceKey(color)).filter(Boolean)
+  );
+  if (wanted.size === 0) return false;
+  return colourKeysOf(items).some((key) => wanted.has(key));
+}
+
+/** Soft: at least one garment belongs to a style family matching the preference. */
+export function outfitMatchesPreferredStyles(
+  items: ClothingItem[],
+  preferredStyles: string[]
+): boolean {
+  const wanted = new Set(preferredStyles.flatMap((style) => styleFamiliesMatchingPreference(style)));
+  if (wanted.size === 0) return false;
+  return items.some((item) => styleFamiliesForItem(item).some((family) => wanted.has(family)));
 }
 
 function meanPairwiseSimilarity(outfits: RankedOutfit[]): number | null {
@@ -67,28 +100,51 @@ function hasExactDuplicate(outfits: RankedOutfit[]): boolean {
   return new Set(signatures).size !== signatures.length;
 }
 
+function failedScenario(scenario: GoldenScenario): ScenarioEvaluation {
+  const minScore = scenario.expectations.minScore;
+  const scoreThresholdPassed = minScore === undefined;
+  const colourPreferencePassed =
+    scenario.expectations.preferredColours !== undefined ? false : undefined;
+  const stylePreferencePassed =
+    scenario.expectations.preferredStyles !== undefined ? false : undefined;
+  return {
+    scenarioId: scenario.id,
+    ok: false,
+    hardConstraintPassed: false,
+    scoreThresholdPassed,
+    scenarioPassed: false,
+    colourPreferencePassed,
+    stylePreferencePassed,
+    occasionFit: scenario.expectations.shouldRespectOccasion ? false : null,
+    weatherFit: scenario.expectations.shouldRespectWeather ? false : null,
+    personalizationActivated: scenario.expectations.shouldUsePersonalization ? false : null,
+    hasDuplicate: false,
+    pairwiseSimilarity: null,
+    topScore: null,
+  };
+}
+
 export function evaluateScenario(scenario: GoldenScenario): ScenarioEvaluation {
   const count = scenario.request.count ?? scenario.expectations.maxResults ?? 3;
   const result = recommendOutfits(scenario.wardrobe, { ...scenario.request, count });
   if (!result.ok || result.recommendations.length === 0) {
-    return {
-      scenarioId: scenario.id,
-      ok: false,
-      constraintPassed: false,
-      occasionFit: scenario.expectations.shouldRespectOccasion ? false : null,
-      weatherFit: scenario.expectations.shouldRespectWeather ? false : null,
-      personalizationActivated: scenario.expectations.shouldUsePersonalization ? false : null,
-      hasDuplicate: false,
-      pairwiseSimilarity: null,
-      topScore: null,
-    };
+    return failedScenario(scenario);
   }
 
   const outfits = result.recommendations;
   const top = outfits[0];
-  const constraintPassed = outfits.every((outfit) => satisfiesHardConstraints(outfit, scenario));
+  const hardConstraintPassed = outfits.every((outfit) => satisfiesHardConstraints(outfit, scenario));
   const minScore = scenario.expectations.minScore;
-  const scorePassed = minScore === undefined || top.score.overall >= minScore;
+  const scoreThresholdPassed = minScore === undefined || top.score.overall >= minScore;
+  const hasDuplicate = hasExactDuplicate(outfits);
+  const colourPreferencePassed =
+    scenario.expectations.preferredColours !== undefined
+      ? outfitMatchesPreferredColours(top.items, scenario.expectations.preferredColours)
+      : undefined;
+  const stylePreferencePassed =
+    scenario.expectations.preferredStyles !== undefined
+      ? outfitMatchesPreferredStyles(top.items, scenario.expectations.preferredStyles)
+      : undefined;
 
   const occasionFit =
     scenario.expectations.shouldRespectOccasion === true
@@ -108,11 +164,15 @@ export function evaluateScenario(scenario: GoldenScenario): ScenarioEvaluation {
   return {
     scenarioId: scenario.id,
     ok: true,
-    constraintPassed: constraintPassed && scorePassed,
+    hardConstraintPassed,
+    scoreThresholdPassed,
+    scenarioPassed: hardConstraintPassed && scoreThresholdPassed && !hasDuplicate,
+    colourPreferencePassed,
+    stylePreferencePassed,
     occasionFit,
     weatherFit,
     personalizationActivated,
-    hasDuplicate: hasExactDuplicate(outfits),
+    hasDuplicate,
     pairwiseSimilarity: meanPairwiseSimilarity(outfits),
     topScore: top.score.overall,
   };
@@ -127,6 +187,8 @@ export function aggregateEvaluations(rows: ScenarioEvaluation[]): EvaluationMetr
   const occasionRows = rows.filter((row) => row.occasionFit !== null);
   const weatherRows = rows.filter((row) => row.weatherFit !== null);
   const personalizationRows = rows.filter((row) => row.personalizationActivated !== null);
+  const colourRows = rows.filter((row) => row.colourPreferencePassed !== undefined);
+  const styleRows = rows.filter((row) => row.stylePreferencePassed !== undefined);
   const similarityRows = rows.filter((row) => row.pairwiseSimilarity !== null);
   const successful = rows.filter((row) => row.ok);
   const topScores = successful
@@ -136,12 +198,22 @@ export function aggregateEvaluations(rows: ScenarioEvaluation[]): EvaluationMetr
   return {
     scenarioCount: rows.length,
     successfulCount: successful.length,
-    constraintPassRate: rate(rows.filter((row) => row.constraintPassed).length, rows.length),
+    hardConstraintPassRate: rate(rows.filter((row) => row.hardConstraintPassed).length, rows.length),
+    scoreThresholdPassRate: rate(rows.filter((row) => row.scoreThresholdPassed).length, rows.length),
+    scenarioPassRate: rate(rows.filter((row) => row.scenarioPassed).length, rows.length),
     occasionFitRate: rate(occasionRows.filter((row) => row.occasionFit).length, occasionRows.length),
     weatherFitRate: rate(weatherRows.filter((row) => row.weatherFit).length, weatherRows.length),
     personalizationActivationRate: rate(
       personalizationRows.filter((row) => row.personalizationActivated).length,
       personalizationRows.length
+    ),
+    colourPreferenceRate: rate(
+      colourRows.filter((row) => row.colourPreferencePassed).length,
+      colourRows.length
+    ),
+    stylePreferenceRate: rate(
+      styleRows.filter((row) => row.stylePreferencePassed).length,
+      styleRows.length
     ),
     duplicateRate: rate(rows.filter((row) => row.hasDuplicate).length, Math.max(successful.length, 1)),
     averagePairwiseSimilarity:
@@ -171,12 +243,19 @@ export function formatEvaluationReport(metrics: EvaluationMetrics): string {
     '',
     `Scenarios: ${metrics.scenarioCount}`,
     '',
-    `Constraint pass rate: ${pct(metrics.constraintPassRate)}`,
+    `Hard constraint pass rate: ${pct(metrics.hardConstraintPassRate)}`,
+    `Score threshold pass rate: ${pct(metrics.scoreThresholdPassRate)}`,
+    `Overall scenario pass rate: ${pct(metrics.scenarioPassRate)}`,
+    '',
     `Occasion fit rate: ${pct(metrics.occasionFitRate)}`,
     `Weather fit rate: ${pct(metrics.weatherFitRate)}`,
     `Personalization activation: ${pct(metrics.personalizationActivationRate)}`,
+    `Colour preference rate: ${pct(metrics.colourPreferenceRate)}`,
+    `Style preference rate: ${pct(metrics.stylePreferenceRate)}`,
+    '',
     `Duplicate rate: ${pct(metrics.duplicateRate)}`,
     `Diversity pass rate: ${pct(metrics.diversityPassRate)}`,
+    '',
     `Average top recommendation score: ${metrics.averageTopScore.toFixed(1)}`,
   ].join('\n');
 }

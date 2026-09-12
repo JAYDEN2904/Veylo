@@ -7,6 +7,14 @@ import {
 import type { RecommendationEventType, UserPreferenceVector } from '../types';
 import type { GoldenScenario } from './evaluationTypes';
 
+/**
+ * Deterministic regression/evaluation fixture for the local recommendation
+ * engine. It is not a substitute for real-user behavioral data.
+ *
+ * `preferredColours` / `preferredStyles` are evaluation expectations only.
+ * They do not change ranking, MMR, or hard constraints.
+ */
+
 function weather(temperature: number, condition: string, description: string): WeatherData {
   return {
     temperature,

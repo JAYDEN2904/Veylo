@@ -22,6 +22,18 @@ export function styleFamiliesForItem(item: ClothingItem): string[] {
 }
 
 /**
+ * Map a preference label onto existing style-family keys.
+ * `streetwear` → `street`, `minimalist` → `minimal`. Does not classify garments.
+ */
+export function styleFamiliesMatchingPreference(preferred: string): string[] {
+  const key = preferred.trim().toLowerCase();
+  if (!key) return [];
+  return Object.entries(STYLE_FAMILIES)
+    .filter(([family, tokens]) => family === key || tokens.includes(key))
+    .map(([family]) => family);
+}
+
+/**
  * Outfit style coherence — shared families matter more than raw tag overlap.
  * Streetwear top + streetwear bottom + minimal shoes can still be coherent.
  */
