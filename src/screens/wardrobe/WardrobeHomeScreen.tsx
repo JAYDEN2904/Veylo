@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { weatherService } from '../../services/weatherService';
 import { WeatherData, ClothingItem } from '../../types';
 import type { WardrobeStackScreenProps } from '../../navigation/screenProps';
+import { navigateToScanCapture } from '../../navigation/screenProps';
 import * as Location from 'expo-location';
 import { EmptyStates } from '../../components/EmptyState';
 import { useTabScreenPadding } from '../../hooks/useTabScreenPadding';
@@ -26,7 +27,8 @@ type Props = WardrobeStackScreenProps<'WardrobeHome'>;
 
 export const WardrobeHomeScreen = ({ navigation }: Props) => {
   const tabPad = useTabScreenPadding();
-  const { items } = useWardrobeStore();
+  const { items, fetchItems } = useWardrobeStore();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { user } = useAuthStore();
   const { currentTheme } = useThemeStore();
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -36,6 +38,10 @@ export const WardrobeHomeScreen = ({ navigation }: Props) => {
   useEffect(() => {
     loadWeather();
   }, []);
+
+  useEffect(() => {
+    void fetchItems();
+  }, [fetchItems]);
 
   const loadWeather = async () => {
     setWeatherLoading(true);
@@ -280,8 +286,15 @@ export const WardrobeHomeScreen = ({ navigation }: Props) => {
           }}
           refreshControl={
             <RefreshControl
-              refreshing={weatherLoading}
-              onRefresh={loadWeather}
+              refreshing={isRefreshing}
+              onRefresh={async () => {
+                setIsRefreshing(true);
+                try {
+                  await Promise.all([loadWeather(), fetchItems()]);
+                } finally {
+                  setIsRefreshing(false);
+                }
+              }}
               tintColor={currentTheme.colors.primary}
             />
           }
@@ -289,7 +302,7 @@ export const WardrobeHomeScreen = ({ navigation }: Props) => {
           {filteredItems.length === 0 ? (
             <EmptyStates.Wardrobe
               onScan={() =>
-                navigation.getParent()?.navigate('ScanStack', { screen: 'LiveCameraScan' })
+                navigateToScanCapture(navigation)
               }
             />
           ) : (

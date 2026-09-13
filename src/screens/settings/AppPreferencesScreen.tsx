@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Appearance, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Screen, Typography, StyledView, Card } from '../../components/common';
 import { useThemeStore } from '../../store/useThemeStore';
+import { useAppSettingsStore } from '../../store/useAppSettingsStore';
 import { Ionicons } from '@expo/vector-icons';
 
 interface PreferenceItemProps {
@@ -74,9 +75,14 @@ export const AppPreferencesScreen = ({ navigation }: { navigation: { goBack: () 
   const { mode, setMode, currentTheme } = useThemeStore();
   const systemScheme = Appearance.getColorScheme();
   const isDark = mode === 'dark' || (mode === 'system' && systemScheme === 'dark');
-  const [analytics, setAnalytics] = useState(true);
-  const [crashReports, setCrashReports] = useState(true);
-  const [autoBackup, setAutoBackup] = useState(true);
+  const {
+    analyticsEnabled,
+    crashReportsEnabled,
+    autoBackupEnabled,
+    setAnalyticsEnabled,
+    setCrashReportsEnabled,
+    setAutoBackupEnabled,
+  } = useAppSettingsStore();
 
   const handleToggleDark = (next: boolean) => {
     setMode(next ? 'dark' : 'light');
@@ -131,7 +137,7 @@ export const AppPreferencesScreen = ({ navigation }: { navigation: { goBack: () 
           <PreferenceItem
             icon="moon-outline"
             label="Dark Mode"
-            description="Switch to dark theme"
+            description={mode === 'system' ? 'Using system appearance' : 'Switch to dark theme'}
             value={isDark}
             onValueChange={handleToggleDark}
           />
@@ -162,8 +168,8 @@ export const AppPreferencesScreen = ({ navigation }: { navigation: { goBack: () 
             icon="cloud-upload-outline"
             label="Auto Backup"
             description="Automatically backup your closet"
-            value={autoBackup}
-            onValueChange={setAutoBackup}
+            value={autoBackupEnabled}
+            onValueChange={setAutoBackupEnabled}
           />
         </Animated.View>
 
@@ -185,15 +191,15 @@ export const AppPreferencesScreen = ({ navigation }: { navigation: { goBack: () 
             icon="analytics-outline"
             label="Analytics"
             description="Help improve Veylo"
-            value={analytics}
-            onValueChange={setAnalytics}
+            value={analyticsEnabled}
+            onValueChange={setAnalyticsEnabled}
           />
           <PreferenceItem
             icon="bug-outline"
             label="Crash Reports"
             description="Send crash reports automatically"
-            value={crashReports}
-            onValueChange={setCrashReports}
+            value={crashReportsEnabled}
+            onValueChange={setCrashReportsEnabled}
           />
         </Animated.View>
       </ScrollView>

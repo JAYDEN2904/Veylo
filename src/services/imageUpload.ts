@@ -1,16 +1,22 @@
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { resolveAvatarsStoragePath } from '../utils/avatarStoragePath';
+import { rememberSignedUrl, resolveSignedUrls, SIGNED_URL_TTL_SEC } from './signedUrlCache';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+import { thumbnailStoragePath } from './wardrobeImagePaths';
 
 export { resolveAvatarsStoragePath } from '../utils/avatarStoragePath';
 
 const MAX_EDGE = 1600;
+const THUMB_EDGE = 480;
 const JPEG_QUALITY = 0.82;
+const THUMB_QUALITY = 0.72;
 
 export interface UploadItemPhotoResult {
   path: string;
   publicUrl?: string;
+  thumbnailPath?: string;
+  thumbnailUrl?: string;
 }
 
 /** ImageManipulator needs a local URI — download remote https images first. */
@@ -65,10 +71,38 @@ export async function uploadClothingItemPhoto(
     throw error;
   }
 
-  const { data: signed } = await supabase.storage
-    .from('item-photos')
-    .createSignedUrl(storagePath, 3600);
-  return { path: storagePath, publicUrl: signed?.signedUrl };
+  const thumbPath = thumbnailStoragePath(storagePath);
+  try {
+    const thumb = await ImageManipulator.manipulateAsync(
+      manipulated.uri,
+      [{ resize: { width: THUMB_EDGE } }],
+      { compress: THUMB_QUALITY, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    const thumbBytes = await fetch(thumb.uri).then((r) => r.arrayBuffer());
+    const { error: thumbError } = await supabase.storage
+      .from('item-photos')
+      .upload(thumbPath, thumbBytes, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
+    if (thumbError && __DEV__) {
+      console.warn('[uploadClothingItemPhoto] thumb upload failed', thumbError.message);
+    }
+  } catch (thumbError) {
+    if (__DEV__) console.warn('[uploadClothingItemPhoto] thumb resize failed', thumbError);
+  }
+
+  const signed = await resolveSignedUrls('item-photos', [storagePath, thumbPath]);
+  const publicUrl = signed.get(storagePath);
+  const thumbnailUrl = signed.get(thumbPath);
+  if (publicUrl) rememberSignedUrl('item-photos', storagePath, publicUrl, SIGNED_URL_TTL_SEC);
+  if (thumbnailUrl) rememberSignedUrl('item-photos', thumbPath, thumbnailUrl, SIGNED_URL_TTL_SEC);
+  return {
+    path: storagePath,
+    publicUrl,
+    thumbnailPath: thumbPath,
+    thumbnailUrl: thumbnailUrl ?? publicUrl,
+  };
 }
 
 /** Resize/compress a full-body reference photo, upload to `avatars/{userId}/{filename}`. */
@@ -123,11 +157,8 @@ export async function uploadAvatarPhoto(
 export async function signedUrlForBucketPath(
   bucket: 'item-photos' | 'avatars' | 'tryon-results',
   path: string,
-  expiresIn = 3600
+  expiresIn = SIGNED_URL_TTL_SEC
 ): Promise<string | null> {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
-  if (error || !data?.signedUrl) return null;
-  return data.signedUrl;
+  const signed = await resolveSignedUrls(bucket, [path], expiresIn);
+  return signed.get(path) ?? null;
 }

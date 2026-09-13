@@ -70,7 +70,11 @@ export const StyleProfileEditScreen = ({ navigation }: { navigation: { goBack: (
       if (quizAnswers.styleArchetype) {
         initializeStyleProfile(preferencesFromArchetype(quizAnswers.styleArchetype));
       }
-      await upsertStyleProfile(user.id, quizAnswers);
+      const saved = await upsertStyleProfile(user.id, quizAnswers);
+      if (!saved) {
+        Alert.alert('Save failed', 'Your style answers could not be saved. Please try again.');
+        return;
+      }
       Alert.alert(
         'Style profile updated',
         'Your preferences will shape future outfit suggestions.'

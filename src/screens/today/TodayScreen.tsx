@@ -50,6 +50,7 @@ import { ionIconName } from '../../utils/ionIcon';
 import { hapticService } from '../../utils/haptics';
 import { Fonts } from '../../theme/fonts';
 import type { TodayStackScreenProps } from '../../navigation/screenProps';
+import { navigateToScanCapture } from '../../navigation/screenProps';
 import type { ClothingItem, OutfitEvent, WeatherData } from '../../types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -369,7 +370,7 @@ export const TodayScreen = ({ navigation }: Props) => {
               Today
             </Typography>
           </View>
-          <EmptyStates.Wardrobe onScan={() => navigation.getParent()?.navigate('ScanStack')} />
+          <EmptyStates.Wardrobe onScan={() => navigateToScanCapture(navigation)} />
         </Screen>
       </SafeAreaView>
     );

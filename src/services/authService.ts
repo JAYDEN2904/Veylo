@@ -4,6 +4,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import type { User, UserPreferences } from '../types';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+import { signedUrlForBucketPath } from './imageUpload';
 
 export class EmailVerificationRequiredError extends Error {
   readonly email: string;
@@ -75,7 +76,32 @@ async function loadUserFromProfile(userId: string, email: string): Promise<User>
       preferences: defaultPreferences(),
     };
   }
-  return mapProfileToUser(userId, email, data);
+  const user = mapProfileToUser(userId, email, data);
+  const rawAvatar = data.avatar_url as string | null;
+  if (rawAvatar && !rawAvatar.startsWith('http')) {
+    try {
+      const signed = await signedUrlForBucketPath('avatars', rawAvatar);
+      if (signed) {
+        return { ...user, avatarUrl: signed };
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('[loadUserFromProfile] avatar url', err);
+    }
+  }
+  return user;
+}
+
+export async function updateProfileName(userId: string, name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error('Name cannot be empty.');
+  }
+  const supabase = getSupabase();
+  if (!supabase || !isSupabaseConfigured()) {
+    return;
+  }
+  const { error } = await supabase.from('profiles').update({ name: trimmed }).eq('id', userId);
+  if (error) throw error;
 }
 
 export async function signInWithEmail(

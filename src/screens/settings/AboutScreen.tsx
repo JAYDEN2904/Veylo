@@ -2,30 +2,34 @@ import React from 'react';
 import { ScrollView, TouchableOpacity, Linking } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Screen, Typography, StyledView, Card } from '../../components/common';
-import { theme } from '../../theme';
+import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const LinkItem = ({ icon, label, onPress }: any) => (
-  <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
-    <Card className="p-4 mb-3 border-0 shadow-sm">
-      <StyledView className="flex-row items-center justify-between">
-        <StyledView className="flex-row items-center flex-1">
-          <Ionicons
-            name={icon}
-            size={24}
-            color={theme.colors.primary}
-            style={{ marginRight: 16 }}
-          />
-          <Typography className="text-primary font-semibold">{label}</Typography>
+const LinkItem = ({ icon, label, onPress }: any) => {
+  const { currentTheme } = useThemeStore();
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+      <Card style={{ padding: 16, marginBottom: 12 }}>
+        <StyledView style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <StyledView style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Ionicons
+              name={icon}
+              size={24}
+              color={currentTheme.colors.primary}
+              style={{ marginRight: 16 }}
+            />
+            <Typography style={{ color: currentTheme.colors.text, fontWeight: '600' }}>{label}</Typography>
+          </StyledView>
+          <Ionicons name="chevron-forward" size={20} color={currentTheme.colors.textSecondary} />
         </StyledView>
-        <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-      </StyledView>
-    </Card>
-  </TouchableOpacity>
-);
+      </Card>
+    </TouchableOpacity>
+  );
+};
 
 export const AboutScreen = ({ navigation }: any) => {
+  const { currentTheme } = useThemeStore();
   return (
     <Screen className="bg-background">
       <ScrollView
@@ -38,7 +42,7 @@ export const AboutScreen = ({ navigation }: any) => {
             onPress={() => navigation.goBack()}
             style={{ marginBottom: 24, width: 40 }}
           >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={24} color={currentTheme.colors.text} />
           </TouchableOpacity>
           <Typography variant="header" className="text-4xl text-primary mb-2">
             About
@@ -50,7 +54,7 @@ export const AboutScreen = ({ navigation }: any) => {
           <Card className="p-8 mb-6 border-0 shadow-lg">
             <StyledView className="items-center">
               <LinearGradient
-                colors={[theme.colors.primary, '#2A2D31']}
+                colors={[currentTheme.colors.primary, currentTheme.colors.surface]}
                 style={{
                   width: 100,
                   height: 100,
@@ -81,9 +85,16 @@ export const AboutScreen = ({ navigation }: any) => {
         <Animated.View entering={FadeInDown.duration(400).delay(200)}>
           <Card
             className="p-5 mb-6 border-0 shadow-sm"
-            style={{ backgroundColor: theme.colors.background }}
+            style={{ backgroundColor: currentTheme.colors.surface }}
           >
-            <Typography className="text-gray-700 text-sm leading-6 text-center">
+            <Typography
+              style={{
+                color: currentTheme.colors.textSecondary,
+                fontSize: 14,
+                lineHeight: 22,
+                textAlign: 'center',
+              }}
+            >
               Veylo is a premium AI-powered smart closet app that helps you organize, style, and
               manage your wardrobe with ease. Discover your personal style, get outfit suggestions,
               and make sustainable fashion choices.
@@ -132,7 +143,7 @@ export const AboutScreen = ({ navigation }: any) => {
         {/* Copyright */}
         <Animated.View entering={FadeInDown.duration(400).delay(500)}>
           <Typography className="text-gray-400 text-xs text-center mt-8">
-            © 2024 Veylo. All rights reserved.
+            © 2026 Veylo. All rights reserved.
           </Typography>
         </Animated.View>
       </ScrollView>

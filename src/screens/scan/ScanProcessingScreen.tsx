@@ -52,10 +52,14 @@ export const ScanProcessingScreen = ({ navigation, route }: any) => {
   }, []);
 
   useEffect(() => {
+    hasRun.current = false;
+  }, [params.imageUri]);
+
+  useEffect(() => {
     if (hasRun.current) return;
     hasRun.current = true;
     runPipeline();
-  }, []);
+  }, [params.imageUri]);
 
   const setProgress = (pct: number, stepIndex: number) => {
     progress.value = withTiming(pct, { duration: 400 });

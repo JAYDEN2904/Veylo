@@ -17,6 +17,7 @@ import {
 import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { navigateToScanCapture, navigateToWardrobe } from '../../navigation/screenProps';
 
 export const ScanFailureScreen = ({ navigation, route }: any) => {
   const { currentTheme } = useThemeStore();
@@ -109,21 +110,11 @@ export const ScanFailureScreen = ({ navigation, route }: any) => {
 
           {/* Action Buttons */}
           <StyledView style={{ width: '100%', gap: 12 }}>
-            <PrimaryButton
-              title="Try Again"
-              onPress={() => navigation.navigate('LiveCameraScan')}
-            />
+            <PrimaryButton title="Try Again" onPress={() => navigateToScanCapture(navigation)} />
             <GhostButton
-              title="Cancel"
+              title="Back to closet"
               fullWidth
-              onPress={() => {
-                const parent = navigation.getParent?.();
-                if (parent) {
-                  parent.navigate('TodayStack', { screen: 'WardrobeHome' });
-                } else {
-                  navigation.goBack();
-                }
-              }}
+              onPress={() => navigateToWardrobe(navigation)}
             />
           </StyledView>
         </Animated.View>

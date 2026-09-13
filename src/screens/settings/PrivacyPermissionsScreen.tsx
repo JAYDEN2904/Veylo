@@ -1,162 +1,202 @@
-import React, { useState } from 'react';
-import { ScrollView, TouchableOpacity, Linking, Alert } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AppState, ScrollView, TouchableOpacity, Linking, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Screen, Typography, StyledView, Card } from '../../components/common';
-import { theme } from '../../theme';
+import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 
-const PermissionItem = ({ icon, label, description, status, onPress, color }: any) => (
-  <Card className="p-4 mb-3 border-0 shadow-sm">
-    <StyledView className="flex-row items-center justify-between">
-      <StyledView className="flex-row items-center flex-1">
-        <LinearGradient
-          colors={[color, color + 'CC']}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            justifyContent: 'center',
-            alignItems: 'center',
-            marginRight: 12,
-          }}
-        >
-          <Ionicons name={icon} size={20} color="#FFF" />
-        </LinearGradient>
-        <StyledView className="flex-1">
-          <Typography className="text-primary font-semibold">{label}</Typography>
-          {description && (
-            <Typography className="text-gray-500 text-sm mt-0.5">{description}</Typography>
-          )}
-        </StyledView>
-      </StyledView>
-      <TouchableOpacity
-        onPress={onPress}
-        style={{
-          paddingHorizontal: 16,
-          paddingVertical: 8,
-          borderRadius: 20,
-          backgroundColor: status === 'granted' ? theme.colors.success : theme.colors.primary,
-        }}
-      >
-        <Typography className="text-white text-sm font-semibold">
-          {status === 'granted' ? 'Granted' : 'Enable'}
-        </Typography>
-      </TouchableOpacity>
-    </StyledView>
-  </Card>
-);
+type PermissionKey = 'camera' | 'photos' | 'notifications' | 'location';
+type PermissionStatus = 'granted' | 'denied' | 'undetermined';
 
-export const PrivacyPermissionsScreen = ({ navigation }: any) => {
-  const [permissions, setPermissions] = useState({
-    camera: 'granted',
-    photos: 'granted',
-    location: 'denied',
-    notifications: 'granted',
+function mapStatus(status?: string): PermissionStatus {
+  if (status === 'granted') return 'granted';
+  if (status === 'denied') return 'denied';
+  return 'undetermined';
+}
+
+export const PrivacyPermissionsScreen = ({ navigation }: { navigation: { goBack: () => void } }) => {
+  const { currentTheme } = useThemeStore();
+  const [permissions, setPermissions] = useState<Record<PermissionKey, PermissionStatus>>({
+    camera: 'undetermined',
+    photos: 'undetermined',
+    notifications: 'undetermined',
+    location: 'undetermined',
   });
 
-  const handlePermissionRequest = (key: string) => {
-    if (permissions[key as keyof typeof permissions] === 'granted') {
-      Alert.alert('Permission Already Granted', 'This permission is already enabled.');
-      return;
+  const refreshPermissions = useCallback(async () => {
+    try {
+      const [camera, photos, notifications, location] = await Promise.all([
+        ImagePicker.getCameraPermissionsAsync(),
+        ImagePicker.getMediaLibraryPermissionsAsync(),
+        Notifications.getPermissionsAsync(),
+        Location.getForegroundPermissionsAsync(),
+      ]);
+      setPermissions({
+        camera: mapStatus(camera.status),
+        photos: mapStatus(photos.status),
+        notifications: mapStatus(notifications.status),
+        location: mapStatus(location.status),
+      });
+    } catch (err) {
+      if (__DEV__) console.warn('[PrivacyPermissions] refresh', err);
     }
+  }, []);
 
-    Alert.alert(
-      'Permission Required',
-      `Veylo needs ${key} permission to function properly. Would you like to enable it in Settings?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Open Settings',
-          onPress: () => {
-            Linking.openSettings();
-            // In a real app, you'd check the permission status after returning
-            setPermissions((prev) => ({ ...prev, [key]: 'granted' }));
-          },
-        },
-      ]
-    );
+  useEffect(() => {
+    void refreshPermissions();
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void refreshPermissions();
+    });
+    return () => sub.remove();
+  }, [refreshPermissions]);
+
+  const handlePermissionRequest = async (key: PermissionKey) => {
+    try {
+      if (permissions[key] === 'granted') {
+        Alert.alert('Already enabled', 'This permission is already granted. You can change it in iOS or Android Settings.');
+        return;
+      }
+
+      if (key === 'camera') {
+        const result = await ImagePicker.requestCameraPermissionsAsync();
+        setPermissions((prev) => ({ ...prev, camera: mapStatus(result.status) }));
+        if (result.status !== 'granted') Linking.openSettings();
+        return;
+      }
+      if (key === 'photos') {
+        const result = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        setPermissions((prev) => ({ ...prev, photos: mapStatus(result.status) }));
+        if (result.status !== 'granted') Linking.openSettings();
+        return;
+      }
+      if (key === 'notifications') {
+        const result = await Notifications.requestPermissionsAsync();
+        setPermissions((prev) => ({ ...prev, notifications: mapStatus(result.status) }));
+        if (result.status !== 'granted') Linking.openSettings();
+        return;
+      }
+      const result = await Location.requestForegroundPermissionsAsync();
+      setPermissions((prev) => ({ ...prev, location: mapStatus(result.status) }));
+      if (result.status !== 'granted') Linking.openSettings();
+    } catch (err) {
+      if (__DEV__) console.warn('[PrivacyPermissions] request', err);
+      Alert.alert('Permission error', 'Could not update this permission. Try again from Settings.');
+    }
   };
 
+  const rows: Array<{
+    key: PermissionKey;
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    description: string;
+  }> = [
+    { key: 'camera', icon: 'camera', label: 'Camera', description: 'Scan garments into your closet' },
+    { key: 'photos', icon: 'images', label: 'Photo Library', description: 'Import existing wardrobe photos' },
+    {
+      key: 'notifications',
+      icon: 'notifications',
+      label: 'Notifications',
+      description: 'Outfit reminders and weather prompts',
+    },
+    { key: 'location', icon: 'location', label: 'Location', description: 'Weather-based outfit suggestions' },
+  ];
+
   return (
-    <Screen className="bg-background">
+    <Screen>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 100 }}
       >
-        {/* Header */}
         <Animated.View entering={FadeInDown.duration(400)}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
-            style={{ marginBottom: 24, width: 40 }}
+            style={{ marginBottom: 24, width: 44, minHeight: 44 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={24} color={currentTheme.colors.text} />
           </TouchableOpacity>
-          <Typography variant="header" className="text-4xl text-primary mb-2">
+          <Typography
+            variant="header"
+            style={{ color: currentTheme.colors.text, fontSize: 34, fontWeight: '700', marginBottom: 8 }}
+          >
             Privacy & Permissions
           </Typography>
-          <Typography className="text-gray-500 text-base mb-6">
-            Manage what Veylo can access on your device
+          <Typography style={{ color: currentTheme.colors.textSecondary, fontSize: 16, marginBottom: 24 }}>
+            These statuses come from iOS / Android, not from a guessed default.
           </Typography>
         </Animated.View>
 
-        {/* Permissions List */}
-        <Animated.View entering={FadeInDown.duration(400).delay(100)}>
-          <PermissionItem
-            icon="camera"
-            label="Camera"
-            description="Scan and add items to your closet"
-            status={permissions.camera}
-            onPress={() => handlePermissionRequest('camera')}
-            color={theme.colors.accent}
-          />
-          <PermissionItem
-            icon="images"
-            label="Photo Library"
-            description="Import existing photos of your wardrobe"
-            status={permissions.photos}
-            onPress={() => handlePermissionRequest('photos')}
-            color={theme.colors.secondary}
-          />
-          <PermissionItem
-            icon="notifications"
-            label="Notifications"
-            description="Receive outfit suggestions and updates"
-            status={permissions.notifications}
-            onPress={() => handlePermissionRequest('notifications')}
-            color="#10B981"
-          />
-          <PermissionItem
-            icon="location"
-            label="Location"
-            description="Get weather-based outfit suggestions"
-            status={permissions.location}
-            onPress={() => handlePermissionRequest('location')}
-            color="#F59E0B"
-          />
-        </Animated.View>
+        {rows.map((row) => {
+          const status = permissions[row.key];
+          return (
+            <Card key={row.key} style={{ marginBottom: 12, padding: 16 }}>
+              <StyledView style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <StyledView style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+                  <StyledView
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: currentTheme.colors.mutedSurface,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginRight: 12,
+                    }}
+                  >
+                    <Ionicons name={row.icon} size={20} color={currentTheme.colors.primary} />
+                  </StyledView>
+                  <StyledView style={{ flex: 1 }}>
+                    <Typography style={{ color: currentTheme.colors.text, fontWeight: '600' }}>
+                      {row.label}
+                    </Typography>
+                    <Typography style={{ color: currentTheme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>
+                      {row.description}
+                    </Typography>
+                  </StyledView>
+                </StyledView>
+                <TouchableOpacity
+                  onPress={() => {
+                    void handlePermissionRequest(row.key);
+                  }}
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    minHeight: 44,
+                    borderRadius: 20,
+                    justifyContent: 'center',
+                    backgroundColor:
+                      status === 'granted' ? currentTheme.colors.success : currentTheme.colors.primary,
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${row.label} ${status === 'granted' ? 'granted' : 'enable'}`}
+                >
+                  <Typography style={{ color: currentTheme.colors.onPrimary, fontSize: 13, fontWeight: '600' }}>
+                    {status === 'granted' ? 'Granted' : 'Enable'}
+                  </Typography>
+                </TouchableOpacity>
+              </StyledView>
+            </Card>
+          );
+        })}
 
-        {/* Privacy Info */}
-        <Animated.View entering={FadeInDown.duration(400).delay(200)}>
-          <Card
-            className="p-5 mt-6 border-0 shadow-sm"
-            style={{ backgroundColor: theme.colors.background }}
-          >
-            <Ionicons
-              name="shield-checkmark"
-              size={32}
-              color={theme.colors.accent}
-              style={{ marginBottom: 12 }}
-            />
-            <Typography className="text-primary font-semibold text-lg mb-2">
-              Your Privacy Matters
-            </Typography>
-            <Typography className="text-gray-600 text-sm leading-5">
-              We only use permissions to provide you with the best experience. Your data is
-              encrypted and never shared with third parties.
-            </Typography>
-          </Card>
-        </Animated.View>
+        <Card style={{ marginTop: 16, padding: 20, backgroundColor: currentTheme.colors.surface }}>
+          <Ionicons
+            name="shield-checkmark"
+            size={28}
+            color={currentTheme.colors.accent}
+            style={{ marginBottom: 12 }}
+          />
+          <Typography style={{ color: currentTheme.colors.text, fontWeight: '600', fontSize: 17, marginBottom: 8 }}>
+            Your privacy matters
+          </Typography>
+          <Typography style={{ color: currentTheme.colors.textSecondary, fontSize: 14, lineHeight: 20 }}>
+            Veylo uses these permissions only to scan clothes, suggest outfits, and send the reminders you enable.
+          </Typography>
+        </Card>
       </ScrollView>
     </Screen>
   );
