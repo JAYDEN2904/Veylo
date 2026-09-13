@@ -16,6 +16,7 @@ import { theme } from '../../theme';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
 import { useOutfitStore } from '../../store/useOutfitStore';
+import { navigateToScanCapture } from '../../navigation/screenProps';
 import {
   buildClosetInsights,
   CUR_WINDOW_DAYS,
@@ -110,7 +111,7 @@ export const StyleFeedScreen = ({ navigation }: Props) => {
             textPrimary={textPrimary}
             textSecondary={textSecondary}
             onScan={() =>
-              navigation.getParent()?.navigate('ScanStack', { screen: 'LiveCameraScan' })
+              navigateToScanCapture(navigation)
             }
           />
         ) : (

@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleProp, TouchableOpacity, View, ViewStyle, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { clothingImageUri } from '../services/wardrobeImagePaths';
 import { useThemeStore } from '../store/useThemeStore';
 import type { ClothingItem } from '../types';
 
@@ -12,6 +13,8 @@ export interface ClothingTileProps {
   height?: number;
   /** Show a gradient overlay with category + brand at the bottom of the tile. */
   showOverlay?: boolean;
+  /** Grid tiles use the cached thumb; details can request the full image. */
+  variant?: 'thumb' | 'full';
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
 }
@@ -26,6 +29,7 @@ export const ClothingTile: React.FC<ClothingTileProps> = ({
   width,
   height,
   showOverlay = false,
+  variant = 'thumb',
   style,
   accessibilityLabel,
 }) => {
@@ -50,13 +54,16 @@ export const ClothingTile: React.FC<ClothingTileProps> = ({
   const inner = (
     <>
       <Image
-        source={{ uri: item.imageUrl }}
+        source={{ uri: clothingImageUri(item, variant) }}
         style={{
           width: '100%',
           height: '100%',
           backgroundColor: currentTheme.colors.mutedSurface,
         }}
         contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={item.imagePath || item.id}
+        transition={150}
       />
       {showOverlay ? (
         <LinearGradient

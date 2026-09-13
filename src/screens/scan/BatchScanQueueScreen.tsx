@@ -1,143 +1,188 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
 import { Image } from 'expo-image';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen, Typography, Button, StyledView } from '../../components/common';
 import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useWardrobeStore } from '../../store/useWardrobeStore';
 import { uploadClothingItemPhoto } from '../../services/imageUpload';
-import { createClothingItem } from '../../services/wardrobeRepository';
+import { createClothingItem, signedUrlForItemPath } from '../../services/wardrobeRepository';
 import { functionsClient } from '../../services/functionsClient';
-import {
-  enqueueScanQueue,
-  fetchScanQueue,
-  type ScanQueueRow,
-} from '../../services/scanQueueService';
+import { enqueueScanQueue } from '../../services/scanQueueService';
 import { isSupabaseConfigured } from '../../services/supabase';
-import { signedUrlForItemPath } from '../../services/wardrobeRepository';
-
-interface LocalBatchItem {
-  localUri: string;
-  queueId?: string;
-  imagePath?: string;
-  itemId?: string;
-  status: ScanQueueRow['status'] | 'uploading';
-  error?: string;
-}
+import {
+  batchProgress,
+  createBatchItems,
+  processBatchItem,
+  shouldProcessBatchItem,
+  type LocalBatchItem,
+} from '../../services/batchScanProcessor';
+import { navigateToScanCapture, navigateToWardrobe } from '../../navigation/screenProps';
 
 export const BatchScanQueueScreen = ({ navigation, route }: any) => {
   const { currentTheme } = useThemeStore();
   const user = useAuthStore((s) => s.user);
   const uris: string[] = route?.params?.uris ?? [];
-  const [items, setItems] = useState<LocalBatchItem[]>(
-    uris.map((uri) => ({ localUri: uri, status: 'pending' as const }))
-  );
+  const [items, setItems] = useState<LocalBatchItem[]>(() => createBatchItems(uris));
   const [processing, setProcessing] = useState(false);
-
-  const refreshRemote = useCallback(async () => {
-    if (!isSupabaseConfigured()) return;
-    try {
-      const rows = await fetchScanQueue();
-      setItems((prev) =>
-        prev.map((item) => {
-          const match = rows.find((r) => r.id === item.queueId);
-          if (!match) return item;
-          return {
-            ...item,
-            status: match.status,
-            error: match.error ?? undefined,
-          };
-        })
-      );
-    } catch (err) {
-      if (__DEV__) console.warn('[BatchScanQueue] refresh', err);
-    }
-  }, []);
+  const cancelledRef = useRef(false);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   useEffect(() => {
-    void refreshRemote();
-  }, [refreshRemote]);
+    if (uris.length === 0) {
+      navigation.goBack();
+    }
+  }, [navigation, uris.length]);
 
-  const processAll = async () => {
+  useFocusEffect(
+    useCallback(() => {
+      navigation.setOptions({ gestureEnabled: !processing });
+    }, [navigation, processing])
+  );
+
+  const updateItem = (clientId: string, patch: LocalBatchItem) => {
+    setItems((prev) => prev.map((item) => (item.clientId === clientId ? patch : item)));
+  };
+
+  const processQueue = async () => {
     if (!isSupabaseConfigured() || !user?.id) {
-      Alert.alert('Offline mode', 'Sign in with Supabase configured to run batch scans.');
+      Alert.alert('Sign in required', 'Connect your Veylo account to batch-scan items.');
       return;
     }
+
+    cancelledRef.current = false;
     setProcessing(true);
     try {
-      for (let i = 0; i < items.length; i++) {
-        const current = items[i];
-        if (current.status === 'done') continue;
+      const snapshot = itemsRef.current;
+      for (const current of snapshot) {
+        if (cancelledRef.current) break;
+        if (!shouldProcessBatchItem(current)) continue;
 
-        setItems((prev) =>
-          prev.map((it, idx) => (idx === i ? { ...it, status: 'uploading' } : it))
-        );
-
-        const filename = `batch-${Date.now()}-${i}.jpg`;
-        const upload = await uploadClothingItemPhoto(user.id, current.localUri, filename);
-        const queueRow = await enqueueScanQueue(upload.path);
-        const row = await createClothingItem({ image_path: upload.path, status: 'active' });
-        if (!row || !queueRow) throw new Error('Failed to create batch item.');
-
-        setItems((prev) =>
-          prev.map((it, idx) =>
-            idx === i
-              ? {
-                  ...it,
-                  status: 'processing',
-                  queueId: queueRow.id,
-                  imagePath: upload.path,
-                  itemId: row.id,
-                }
-              : it
-          )
-        );
-
-        await functionsClient.tagItem({
-          item_id: row.id,
-          scan_queue_id: queueRow.id,
+        updateItem(current.clientId, { ...current, status: 'uploading', error: undefined });
+        const result = await processBatchItem(current, {
+          userId: user.id,
+          isCancelled: () => cancelledRef.current,
+          upload: uploadClothingItemPhoto,
+          enqueue: enqueueScanQueue,
+          createItem: createClothingItem,
+          tagItem: (input) => functionsClient.tagItem(input),
         });
-
-        setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, status: 'done' } : it)));
+        updateItem(current.clientId, result);
       }
-      await refreshRemote();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Batch processing failed.';
-      Alert.alert('Batch scan failed', message);
+
+      try {
+        await useWardrobeStore.getState().fetchItems();
+      } catch (err) {
+        if (__DEV__) console.warn('[BatchScanQueue] wardrobe refresh', err);
+      }
     } finally {
       setProcessing(false);
     }
   };
 
-  const allDone = items.length > 0 && items.every((i) => i.status === 'done');
+  const handleClose = () => {
+    if (processing) {
+      Alert.alert('Stop batch scan?', 'Items already tagged will stay in your closet.', [
+        { text: 'Keep going', style: 'cancel' },
+        {
+          text: 'Stop',
+          style: 'destructive',
+          onPress: () => {
+            cancelledRef.current = true;
+            navigation.goBack();
+          },
+        },
+      ]);
+      return;
+    }
+    navigation.goBack();
+  };
+
+  const progress = batchProgress(items);
+  const allDone = items.length > 0 && progress.doneCount === items.length;
+  const hasFailures = progress.failedCount > 0;
+  const remaining = items.filter(shouldProcessBatchItem).length;
+
+  const primaryTitle = processing
+    ? 'Processing…'
+    : allDone
+      ? 'View closet'
+      : hasFailures
+        ? `Retry ${progress.failedCount} failed`
+        : `Process ${items.length} photo${items.length === 1 ? '' : 's'}`;
+
+  const handlePrimary = () => {
+    if (allDone) {
+      navigateToWardrobe(navigation);
+      return;
+    }
+    void processQueue();
+  };
 
   return (
-    <Screen className="bg-background">
+    <Screen style={{ backgroundColor: currentTheme.colors.background }}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
         <StyledView style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
+          <TouchableOpacity
+            onPress={handleClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close batch scan"
+            style={{ marginRight: 12, minWidth: 44, minHeight: 44, justifyContent: 'center' }}
+          >
             <Ionicons name="arrow-back" size={24} color={currentTheme.colors.text} />
           </TouchableOpacity>
-          <Typography variant="header" className="text-2xl text-primary">
+          <Typography
+            variant="header"
+            style={{ fontSize: 24, color: currentTheme.colors.text, fontWeight: '700' }}
+          >
             Batch scan
           </Typography>
         </StyledView>
 
-        <Typography className="text-gray-500 mb-4">
-          {items.length} photo{items.length === 1 ? '' : 's'} queued for AI tagging via scan_queue.
+        <Typography style={{ color: currentTheme.colors.textSecondary, marginBottom: 8 }}>
+          {progress.doneCount} of {progress.total} tagged
+          {hasFailures ? ` · ${progress.failedCount} failed` : ''}
         </Typography>
+        <View
+          style={{
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: currentTheme.colors.mutedSurface,
+            overflow: 'hidden',
+            marginBottom: 20,
+          }}
+        >
+          <View
+            style={{
+              width: `${progress.total === 0 ? 0 : (progress.doneCount / progress.total) * 100}%`,
+              height: '100%',
+              backgroundColor: currentTheme.colors.secondary,
+            }}
+          />
+        </View>
 
         {items.map((item, index) => (
-          <BatchRow key={`${item.localUri}-${index}`} item={item} index={index} />
+          <BatchRow key={item.clientId} item={item} index={index} />
         ))}
 
         <Button
-          title={processing ? 'Processing…' : allDone ? 'Done' : 'Process all'}
-          onPress={allDone ? () => navigation.navigate('LiveCameraScan') : processAll}
+          title={primaryTitle}
+          onPress={handlePrimary}
           loading={processing}
-          disabled={processing || items.length === 0}
-          className="mt-6"
+          disabled={processing || items.length === 0 || (remaining === 0 && !allDone)}
+          style={{ marginTop: 24 }}
         />
+        {allDone ? (
+          <Button
+            title="Scan more"
+            variant="outline"
+            onPress={() => navigateToScanCapture(navigation)}
+            style={{ marginTop: 12 }}
+          />
+        ) : null}
       </ScrollView>
     </Screen>
   );
@@ -149,9 +194,13 @@ function BatchRow({ item, index }: { item: LocalBatchItem; index: number }) {
 
   useEffect(() => {
     if (item.imagePath && isSupabaseConfigured()) {
-      signedUrlForItemPath(item.imagePath).then((url) => {
-        if (url) setThumb(url);
-      });
+      signedUrlForItemPath(item.imagePath)
+        .then((url) => {
+          if (url) setThumb(url);
+        })
+        .catch((err) => {
+          if (__DEV__) console.warn('[BatchRow] thumb', err);
+        });
     }
   }, [item.imagePath]);
 
@@ -161,10 +210,10 @@ function BatchRow({ item, index }: { item: LocalBatchItem; index: number }) {
       : item.status === 'processing'
         ? 'Tagging…'
         : item.status === 'done'
-          ? 'Done'
+          ? 'Saved'
           : item.status === 'failed'
             ? 'Failed'
-            : 'Pending';
+            : 'Waiting';
 
   return (
     <StyledView
@@ -176,21 +225,30 @@ function BatchRow({ item, index }: { item: LocalBatchItem; index: number }) {
         borderRadius: 12,
         backgroundColor: currentTheme.colors.surface,
         borderWidth: 1,
-        borderColor: currentTheme.colors.border,
+        borderColor:
+          item.status === 'failed' ? currentTheme.colors.error : currentTheme.colors.border,
       }}
     >
       <Image source={{ uri: thumb }} style={{ width: 56, height: 56, borderRadius: 8 }} />
       <View style={{ flex: 1, marginLeft: 12 }}>
-        <Typography className="font-semibold text-primary">Item {index + 1}</Typography>
-        <Typography className="text-sm text-gray-500">{statusLabel}</Typography>
+        <Typography style={{ fontWeight: '600', color: currentTheme.colors.text }}>
+          Item {index + 1}
+        </Typography>
+        <Typography style={{ fontSize: 13, color: currentTheme.colors.textSecondary }}>
+          {statusLabel}
+        </Typography>
         {item.error ? (
-          <Typography className="text-xs text-red-500 mt-1">{item.error}</Typography>
+          <Typography style={{ fontSize: 12, color: currentTheme.colors.error, marginTop: 4 }}>
+            {item.error}
+          </Typography>
         ) : null}
       </View>
       {item.status === 'processing' || item.status === 'uploading' ? (
         <ActivityIndicator color={currentTheme.colors.primary} />
       ) : item.status === 'done' ? (
         <Ionicons name="checkmark-circle" size={22} color={currentTheme.colors.success} />
+      ) : item.status === 'failed' ? (
+        <Ionicons name="alert-circle" size={22} color={currentTheme.colors.error} />
       ) : null}
     </StyledView>
   );

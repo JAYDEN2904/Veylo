@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import Animated, {
   Easing,
@@ -14,7 +14,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Typography } from '../../components/common';
-import { useAuthStore } from '../../store/useAuthStore';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { Fonts } from '../../theme/fonts';
@@ -65,18 +64,19 @@ function SplashLetter({ char, index, color, reducedMotion }: LetterProps) {
   );
 }
 
+interface SplashScreenProps {
+  onFinished: () => void;
+}
+
 /**
  * In-app animated splash — starts matching the native black/gold splash,
- * then staggers the wordmark and exits into Welcome with a soft fade-scale.
+ * then staggers the wordmark and exits with a soft fade-scale.
+ * Shown on every cold start; the root navigator decides Welcome vs the app.
  */
-export const SplashScreen = ({
-  navigation,
-}: {
-  navigation: { replace: (name: string) => void };
-}) => {
-  const { isAuthenticated } = useAuthStore();
+export const SplashScreen = ({ onFinished }: SplashScreenProps) => {
   const { currentTheme } = useThemeStore();
   const reducedMotion = useReducedMotion();
+  const didFinish = useRef(false);
 
   const bgScale = useSharedValue(1);
   const exitProgress = useSharedValue(0);
@@ -84,10 +84,10 @@ export const SplashScreen = ({
   const taglineOpacity = useSharedValue(0);
 
   const finishAndNavigate = useCallback(() => {
-    if (!isAuthenticated) {
-      navigation.replace('Welcome');
-    }
-  }, [isAuthenticated, navigation]);
+    if (didFinish.current) return;
+    didFinish.current = true;
+    onFinished();
+  }, [onFinished]);
 
   useEffect(() => {
     if (reducedMotion) {

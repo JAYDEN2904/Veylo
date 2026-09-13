@@ -136,7 +136,7 @@ export const EditItemScreen = ({ navigation, route }: any) => {
                   >
                     <Typography
                       className="text-sm font-semibold"
-                      style={{ color: category === cat ? '#FFF' : currentTheme.colors.text }}
+                      style={{ color: category === cat ? currentTheme.colors.onPrimary : currentTheme.colors.text }}
                     >
                       {cat}
                     </Typography>
@@ -184,7 +184,7 @@ export const EditItemScreen = ({ navigation, route }: any) => {
                   >
                     <Typography
                       className="text-sm font-medium"
-                      style={{ color: isSelected ? '#FFF' : currentTheme.colors.text }}
+                      style={{ color: isSelected ? currentTheme.colors.onPrimary : currentTheme.colors.text }}
                     >
                       {color}
                     </Typography>
@@ -221,7 +221,7 @@ export const EditItemScreen = ({ navigation, route }: any) => {
                   >
                     <Typography
                       className="text-sm font-semibold"
-                      style={{ color: isSelected ? '#FFF' : currentTheme.colors.text }}
+                      style={{ color: isSelected ? currentTheme.colors.onPrimary : currentTheme.colors.text }}
                     >
                       {season}
                     </Typography>

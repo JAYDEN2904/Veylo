@@ -7,7 +7,6 @@ import {
   AppTabParamList,
   AppRootStackParamList,
   TodayStackParamList,
-  ScanStackParamList,
   OutfitStackParamList,
   FeedStackParamList,
   ProfileStackParamList,
@@ -18,6 +17,7 @@ import { usePendingRatingStore } from '../store/usePendingRatingStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { PostWearRatingSheet } from '../components/PostWearRatingSheet';
 import { AnimatedTabIcon, CameraFab } from '../components/motion/TabBarMotion';
+import { navigateToScanCapture } from './screenProps';
 
 // Today + Wardrobe Screens
 import { TodayScreen } from '../screens/today/TodayScreen';
@@ -89,7 +89,6 @@ import { AvatarResultScreen } from '../screens/avatar/AvatarResultScreen';
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const RootStack = createStackNavigator<AppRootStackParamList>();
 const TodayStack = createStackNavigator<TodayStackParamList>();
-const ScanStack = createStackNavigator<ScanStackParamList>();
 const OutfitStack = createStackNavigator<OutfitStackParamList>();
 const FeedStack = createStackNavigator<FeedStackParamList>();
 const ProfileStack = createStackNavigator<ProfileStackParamList>();
@@ -112,21 +111,11 @@ const TodayNavigator = () => (
   </TodayStack.Navigator>
 );
 
-// Scan Navigator
-const ScanNavigator = () => (
-  <ScanStack.Navigator
-    screenOptions={{
-      headerShown: false,
-    }}
-  >
-    <ScanStack.Screen name="LiveCameraScan" component={LiveCameraScanScreen} />
-    <ScanStack.Screen name="ScanProcessing" component={ScanProcessingScreen} />
-    <ScanStack.Screen name="TagReview" component={TagReviewScreen} />
-    <ScanStack.Screen name="BatchScanQueue" component={BatchScanQueueScreen} />
-    <ScanStack.Screen name="SaveItemConfirmation" component={SaveItemConfirmationScreen} />
-    <ScanStack.Screen name="ScanFailure" component={ScanFailureScreen} />
-  </ScanStack.Navigator>
-);
+/**
+ * Scan tab is a launcher only. The real capture/review flow lives on the
+ * root stack so the tab bar never sits on top of processing or review.
+ */
+const ScanTabPlaceholder = () => <View style={{ flex: 1 }} />;
 
 // Outfit Navigator (only contains the home screen now)
 const OutfitNavigator = () => (
@@ -259,7 +248,13 @@ const MainTabs = () => {
       />
       <Tab.Screen
         name="ScanStack"
-        component={ScanNavigator}
+        component={ScanTabPlaceholder}
+        listeners={({ navigation }) => ({
+          tabPress: (event) => {
+            event.preventDefault();
+            navigateToScanCapture(navigation);
+          },
+        })}
         options={{
           title: '',
           tabBarLabel: () => null,
@@ -317,6 +312,38 @@ export const AppNavigator = () => {
         }}
       >
         <RootStack.Screen name="MainTabs" component={MainTabs} />
+
+        {/* Scan Flow - focused, no tab bar */}
+        <RootStack.Screen
+          name="LiveCameraScan"
+          component={LiveCameraScanScreen}
+          options={{ presentation: 'card' }}
+        />
+        <RootStack.Screen
+          name="ScanProcessing"
+          component={ScanProcessingScreen}
+          options={{ presentation: 'card', gestureEnabled: false }}
+        />
+        <RootStack.Screen
+          name="BatchScanQueue"
+          component={BatchScanQueueScreen}
+          options={{ presentation: 'card' }}
+        />
+        <RootStack.Screen
+          name="TagReview"
+          component={TagReviewScreen}
+          options={{ presentation: 'card' }}
+        />
+        <RootStack.Screen
+          name="SaveItemConfirmation"
+          component={SaveItemConfirmationScreen}
+          options={{ presentation: 'card' }}
+        />
+        <RootStack.Screen
+          name="ScanFailure"
+          component={ScanFailureScreen}
+          options={{ presentation: 'card' }}
+        />
 
         {/* Outfit Generation Flow - Full screen, no tab bar */}
         <RootStack.Screen

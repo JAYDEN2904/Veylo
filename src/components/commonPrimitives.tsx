@@ -17,8 +17,8 @@ import { Image } from 'expo-image';
 import { styled } from 'nativewind';
 import { twMerge } from 'tailwind-merge';
 
-import { theme } from '../theme';
 import { Fonts, frauncesForWeight, interForWeight } from '../theme/fonts';
+import { useThemeStore } from '../store/useThemeStore';
 
 const StyledText = styled(Text);
 const StyledTextInput = styled(TextInput);
@@ -32,8 +32,13 @@ export type ScreenProps = ViewProps & {
 };
 
 export function Screen({ children, className, style, ...rest }: ScreenProps) {
+  const { currentTheme } = useThemeStore();
   return (
-    <StyledView className={twMerge('flex-1', className)} style={style} {...rest}>
+    <StyledView
+      className={twMerge('flex-1', className)}
+      style={[{ backgroundColor: currentTheme.colors.background }, style]}
+      {...rest}
+    >
       {children}
     </StyledView>
   );
@@ -78,11 +83,7 @@ export function Typography({
     | undefined;
   const mapped = resolveTypographyFont(variant, weight, flat?.fontWeight);
   const variantClass =
-    variant === 'header'
-      ? 'font-bold text-primary'
-      : variant === 'secondary'
-        ? 'text-gray-500'
-        : '';
+    variant === 'header' ? 'font-bold' : variant === 'secondary' ? '' : '';
 
   return (
     <StyledText
@@ -111,34 +112,29 @@ export function Button({
   activeOpacity = 0.85,
   ...rest
 }: ButtonProps) {
+  const { currentTheme } = useThemeStore();
   const isDisabled = disabled ?? loading;
 
-  const containerClass =
+  const containerClass = 'rounded-xl py-4 px-6 items-center justify-center min-h-[48px]';
+  const containerStyle =
     variant === 'outline'
-      ? 'rounded-xl py-4 px-6 items-center justify-center min-h-[48px] border-2 border-accent bg-transparent'
+      ? { borderWidth: 2, borderColor: currentTheme.colors.accent, backgroundColor: 'transparent' }
       : variant === 'secondary'
-        ? 'rounded-xl py-4 px-6 items-center justify-center min-h-[48px] bg-secondary'
+        ? { backgroundColor: currentTheme.colors.secondary }
         : variant === 'ghost'
-          ? 'rounded-xl py-4 px-6 items-center justify-center min-h-[48px] bg-transparent'
-          : 'rounded-xl py-4 px-6 items-center justify-center min-h-[48px] bg-accent';
+          ? { backgroundColor: 'transparent' }
+          : { backgroundColor: currentTheme.colors.accent };
 
-  const titleClass =
+  const titleColor =
     variant === 'outline'
-      ? 'text-base font-semibold text-accent'
+      ? currentTheme.colors.accent
       : variant === 'secondary'
-        ? 'text-base font-semibold text-primary'
+        ? currentTheme.colors.primary
         : variant === 'ghost'
-          ? 'text-base font-semibold text-error'
-          : 'text-base font-semibold text-white';
+          ? currentTheme.colors.error
+          : currentTheme.colors.onPrimary;
 
-  const spinnerColor =
-    variant === 'outline'
-      ? theme.colors.accent
-      : variant === 'secondary'
-        ? theme.colors.primary
-        : variant === 'ghost'
-          ? theme.colors.error
-          : theme.colors.onPrimary;
+  const spinnerColor = titleColor;
 
   return (
     <StyledTouchableOpacity
@@ -147,15 +143,19 @@ export function Button({
       className={twMerge(containerClass, className)}
       disabled={isDisabled}
       onPress={onPress}
-      style={style}
+      style={[containerStyle, { opacity: isDisabled ? 0.55 : 1 }, style]}
       {...rest}
     >
       {loading ? (
         <ActivityIndicator color={spinnerColor} />
       ) : (
         <StyledText
-          className={titleClass}
-          style={{ fontFamily: Fonts.bodySemiBold, fontWeight: '400' }}
+          style={{
+            fontFamily: Fonts.bodySemiBold,
+            fontWeight: '400',
+            fontSize: 16,
+            color: titleColor,
+          }}
         >
           {title}
         </StyledText>
@@ -171,25 +171,33 @@ export type InputProps = TextInputProps & {
 };
 
 export function Input({ label, error, className, ...rest }: InputProps) {
-  const inputClass = twMerge(
-    'border rounded-xl px-4 py-3 text-base text-primary border-gray-300',
-    error ? 'border-error' : ''
-  );
+  const { currentTheme } = useThemeStore();
+  const inputClass = twMerge('border rounded-xl px-4 py-3 text-base', error ? 'border-error' : '');
 
   return (
     <StyledView className={twMerge('w-full', className)}>
       {label ? (
         <StyledText
-          className="text-sm font-medium text-gray-700 mb-2"
-          style={{ fontFamily: Fonts.bodyMedium, fontWeight: '400' }}
+          style={{
+            fontFamily: Fonts.bodyMedium,
+            fontWeight: '400',
+            fontSize: 14,
+            color: currentTheme.colors.text,
+            marginBottom: 8,
+          }}
         >
           {label}
         </StyledText>
       ) : null}
       <StyledTextInput
         className={inputClass}
-        placeholderTextColor="#9CA3AF"
-        style={{ fontFamily: Fonts.bodyRegular }}
+        placeholderTextColor={currentTheme.colors.iconMuted}
+        style={{
+          fontFamily: Fonts.bodyRegular,
+          color: currentTheme.colors.text,
+          borderColor: error ? currentTheme.colors.error : currentTheme.colors.border,
+          backgroundColor: currentTheme.colors.surface,
+        }}
         {...rest}
       />
       {error ? (
@@ -209,7 +217,13 @@ export type CardProps = {
 };
 
 export function Card({ children, className, style, onPress }: CardProps) {
-  const mergedClass = twMerge('bg-card rounded-2xl border border-gray-100', className);
+  const { currentTheme } = useThemeStore();
+  const mergedClass = twMerge('rounded-2xl', className);
+  const cardStyle = {
+    backgroundColor: currentTheme.colors.card,
+    borderWidth: 1,
+    borderColor: currentTheme.colors.border,
+  };
 
   if (onPress) {
     return (
@@ -218,7 +232,7 @@ export function Card({ children, className, style, onPress }: CardProps) {
         activeOpacity={0.92}
         className={mergedClass}
         onPress={onPress}
-        style={style}
+        style={[cardStyle, style]}
       >
         {children}
       </StyledTouchableOpacity>
@@ -226,7 +240,7 @@ export function Card({ children, className, style, onPress }: CardProps) {
   }
 
   return (
-    <StyledView className={mergedClass} style={style}>
+    <StyledView className={mergedClass} style={[cardStyle, style]}>
       {children}
     </StyledView>
   );

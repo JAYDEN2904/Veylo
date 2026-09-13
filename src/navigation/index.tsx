@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { NavigationContainer, LinkingOptions } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { useAuthStore } from '../store/useAuthStore';
+import { SplashScreen } from '../screens/auth/SplashScreen';
 import { AuthNavigator } from './AuthNavigator';
 import { AppNavigator } from './AppNavigator';
 import { RootStackParamList } from './types';
@@ -84,16 +86,56 @@ const linking: LinkingOptions<RootStackParamList> = {
 
 export const RootNavigator = () => {
   const { isAuthenticated } = useAuthStore();
+  const [splashAnimationDone, setSplashAnimationDone] = useState(false);
+  const [authHydrated, setAuthHydrated] = useState(() => useAuthStore.persist.hasHydrated());
+
+  useEffect(() => {
+    if (useAuthStore.persist.hasHydrated()) {
+      setAuthHydrated(true);
+      return;
+    }
+    return useAuthStore.persist.onFinishHydration(() => {
+      setAuthHydrated(true);
+    });
+  }, []);
+
+  const handleSplashFinished = useCallback(() => {
+    setSplashAnimationDone(true);
+  }, []);
+
+  // Cover the tree until the wordmark finishes *and* persisted session is known,
+  // so returning users never flash Welcome before App mounts.
+  const showLaunchSplash = !splashAnimationDone || !authHydrated;
 
   return (
     <NavigationContainer linking={linking}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isAuthenticated ? (
-          <Stack.Screen name="App" component={AppNavigator} />
-        ) : (
-          <Stack.Screen name="Auth" component={AuthNavigator} />
-        )}
-      </Stack.Navigator>
+      <View style={styles.root}>
+        {authHydrated ? (
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {isAuthenticated ? (
+              <Stack.Screen name="App" component={AppNavigator} />
+            ) : (
+              <Stack.Screen name="Auth" component={AuthNavigator} />
+            )}
+          </Stack.Navigator>
+        ) : null}
+        {showLaunchSplash ? (
+          <View style={styles.splashOverlay} pointerEvents="auto">
+            <SplashScreen onFinished={handleSplashFinished} />
+          </View>
+        ) : null}
+      </View>
     </NavigationContainer>
   );
 };
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  splashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
+});

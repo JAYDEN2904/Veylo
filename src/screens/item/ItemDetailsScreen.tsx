@@ -17,7 +17,7 @@ import {
   StyledImage,
 } from '../../components/common';
 import { useWardrobeStore } from '../../store/useWardrobeStore';
-import { theme } from '../../theme';
+import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Card } from '../../components/common';
@@ -32,6 +32,7 @@ const { width } = Dimensions.get('window');
 type Props = StackScreenProps<AppRootStackParamList, 'ItemDetails'>;
 
 export const ItemDetailsScreen = ({ navigation, route }: Props) => {
+  const { currentTheme } = useThemeStore();
   const itemId = route.params?.itemId ?? route.params?.id;
   const { items, deleteItem, toggleItemFavorite, isItemFavorite } = useWardrobeStore();
   const item = items.find((i) => i.id === itemId);
@@ -83,6 +84,8 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
             source={{ uri: item.imageUrl }}
             style={{ width, height: width * 1.2 }}
             contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={item.imagePath || item.id}
           />
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.3)']}
@@ -116,12 +119,12 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
               width: 44,
               height: 44,
               borderRadius: 22,
-              backgroundColor: 'rgba(255,255,255,0.9)',
+              backgroundColor: currentTheme.colors.overlayStrong,
               justifyContent: 'center',
               alignItems: 'center',
             }}
           >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
+            <Ionicons name="arrow-back" size={24} color={currentTheme.colors.onPrimary} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => item && toggleItemFavorite(item.id)}
@@ -135,7 +138,7 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
               width: 44,
               height: 44,
               borderRadius: 22,
-              backgroundColor: 'rgba(255,255,255,0.9)',
+              backgroundColor: currentTheme.colors.overlayStrong,
               justifyContent: 'center',
               alignItems: 'center',
             }}
@@ -143,7 +146,7 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
             <Ionicons
               name={isFavorite ? 'heart' : 'heart-outline'}
               size={24}
-              color={isFavorite ? '#EF4444' : theme.colors.primary}
+              color={isFavorite ? currentTheme.colors.error : currentTheme.colors.onPrimary}
             />
           </TouchableOpacity>
         </StyledView>
@@ -153,7 +156,7 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
           style={{
             padding: 24,
             marginTop: -40,
-            backgroundColor: theme.colors.background,
+            backgroundColor: currentTheme.colors.background,
             borderTopLeftRadius: 32,
             borderTopRightRadius: 32,
           }}
@@ -211,9 +214,9 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
                       paddingHorizontal: 16,
                       paddingVertical: 8,
                       borderRadius: 20,
-                      backgroundColor: theme.colors.surface,
+                      backgroundColor: currentTheme.colors.surface,
                       borderWidth: 1,
-                      borderColor: theme.colors.border,
+                      borderColor: currentTheme.colors.border,
                     }}
                   >
                     <Typography className="text-sm text-gray-700">{color}</Typography>
@@ -237,7 +240,7 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
                       paddingHorizontal: 12,
                       paddingVertical: 6,
                       borderRadius: 16,
-                      backgroundColor: theme.colors.primary + '10',
+                      backgroundColor: currentTheme.colors.mutedSurface,
                     }}
                   >
                     <Typography className="text-sm text-primary font-medium">{tag}</Typography>
@@ -276,6 +279,12 @@ export const ItemDetailsScreen = ({ navigation, route }: Props) => {
                 title="Edit Item"
                 onPress={() => navigation.navigate('EditItem', { id: item.id })}
                 variant="outline"
+                className="w-full"
+              />
+              <Button
+                title="Change Photo"
+                onPress={() => navigation.navigate('ChangeItemPhoto', { id: item.id })}
+                variant="secondary"
                 className="w-full"
               />
               <Button

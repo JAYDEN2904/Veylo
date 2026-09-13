@@ -283,14 +283,14 @@ export const SaveItemConfirmationScreen = ({ navigation, route }: any) => {
   }, [items, itemId, imageUri]);
 
   const handleAddAnother = () => {
-    navigation.navigate('ScanStack');
+    navigation.replace('LiveCameraScan');
   };
 
   const handleViewCloset = () => {
     clearQueue();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'TodayStack' }],
+    navigation.navigate('MainTabs', {
+      screen: 'TodayStack',
+      params: { screen: 'WardrobeHome' },
     });
   };
 

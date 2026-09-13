@@ -2,15 +2,10 @@ import React, { useCallback, useState } from 'react';
 import { Alert, Platform, TouchableOpacity, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useFocusEffect } from '@react-navigation/native';
 import { Screen, Typography, PrimaryButton, SecondaryButton } from '../../components/common';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
-import {
-  getMainTabBarFloatingStyle,
-  MAIN_TAB_BAR_HIDDEN_STYLE,
-} from '../../navigation/tabBarStyles';
-import { getBottomTabNavigatorNavigation } from '../../navigation/screenProps';
+import { navigateToWardrobe } from '../../navigation/screenProps';
 
 /** Square crop helps keep garments centered like the old viewfinder. */
 const GARMENT_ASPECT: [number, number] = [1, 1];
@@ -22,33 +17,15 @@ const SCAN_TIPS = [
 ];
 
 export const LiveCameraScanScreen = ({ navigation }: any) => {
-  const { currentTheme, mode } = useThemeStore();
+  const { currentTheme } = useThemeStore();
   const [isBusy, setIsBusy] = useState(false);
-
-  useFocusEffect(
-    useCallback(() => {
-      const tabNavigation = getBottomTabNavigatorNavigation(navigation);
-      if (!tabNavigation?.setOptions) {
-        return;
-      }
-      tabNavigation.setOptions({
-        tabBarStyle: MAIN_TAB_BAR_HIDDEN_STYLE,
-      });
-      return () => {
-        tabNavigation.setOptions({
-          tabBarStyle: getMainTabBarFloatingStyle(mode, currentTheme.colors.surface),
-        });
-      };
-    }, [navigation, mode, currentTheme.colors.surface])
-  );
 
   const handleCloseScan = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
       return;
     }
-    const tabNavigation = getBottomTabNavigatorNavigation(navigation);
-    tabNavigation?.navigate('TodayStack' as never);
+    navigateToWardrobe(navigation);
   }, [navigation]);
 
   const routeCapturedUris = (uris: string[]) => {
@@ -192,7 +169,7 @@ export const LiveCameraScanScreen = ({ navigation }: any) => {
               lineHeight: 22,
             }}
           >
-            Take a clear photo of one garment, or import several from your library.
+            Take a clear photo of one garment, or import up to 10 from your library.
           </Typography>
         </Animated.View>
 

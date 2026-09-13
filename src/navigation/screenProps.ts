@@ -58,8 +58,6 @@ export type ProfileStackScreenProps<T extends keyof ProfileStackParamList> = Com
 
 /**
  * Walks parent navigators until the bottom-tab navigator is found.
- * ScanStack screens sit under Tab → Stack; tabBarStyle must be set on the tab navigator,
- * not the root stack above MainTabs (second getParent).
  */
 export function getBottomTabNavigatorNavigation(
   navigation: NavigationProp<ParamListBase>
@@ -73,4 +71,47 @@ export function getBottomTabNavigatorNavigation(
     parent = parent.getParent();
   }
   return undefined;
+}
+
+/**
+ * Finds the app root stack (the navigator that owns MainTabs + focused flows).
+ */
+export function getAppRootNavigation(
+  navigation: NavigationProp<ParamListBase>
+): NavigationProp<ParamListBase> | undefined {
+  let current: NavigationProp<ParamListBase> | undefined = navigation;
+  while (current) {
+    const routeNames = current.getState()?.routeNames ?? [];
+    if (routeNames.includes('MainTabs') || routeNames.includes('LiveCameraScan')) {
+      return current;
+    }
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/** Opens the focused camera/library capture flow above the tab bar. */
+export function navigateToScanCapture(navigation: NavigationProp<ParamListBase>): void {
+  const root = getAppRootNavigation(navigation);
+  if (root) {
+    root.navigate('LiveCameraScan' as never);
+    return;
+  }
+  navigation.navigate('LiveCameraScan' as never);
+}
+
+/** Returns from a focused scan/outfit flow to the wardrobe tab. */
+export function navigateToWardrobe(navigation: NavigationProp<ParamListBase>): void {
+  const root = getAppRootNavigation(navigation);
+  if (root) {
+    const navigateRoot = root.navigate as unknown as (name: string, params?: object) => void;
+    navigateRoot('MainTabs', {
+      screen: 'TodayStack',
+      params: { screen: 'WardrobeHome' },
+    });
+    return;
+  }
+  if (navigation.canGoBack()) {
+    navigation.goBack();
+  }
 }

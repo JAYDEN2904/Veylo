@@ -29,7 +29,6 @@ import {
   ClothingTile,
 } from '../../components/common';
 import { useThemeStore } from '../../store/useThemeStore';
-import { theme } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useOutfitStore } from '../../store/useOutfitStore';
@@ -64,39 +63,45 @@ const OutfitItemCard = ({ item, index }: { item: any; index: number }) => {
 };
 
 // Floating action buttons
-const ActionButton = ({ icon, label, onPress, color, delay }: any) => (
-  <Animated.View entering={FadeInDown.duration(400).delay(delay)}>
-    <TouchableOpacity
-      onPress={onPress}
-      style={{
-        alignItems: 'center',
-        padding: 16,
-        borderRadius: 20,
-        backgroundColor: theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        width: 100,
-      }}
-    >
-      <View
+const ActionButton = ({ icon, label, onPress, color, delay }: any) => {
+  const { currentTheme } = useThemeStore();
+  return (
+    <Animated.View entering={FadeInDown.duration(400).delay(delay)}>
+      <TouchableOpacity
+        onPress={onPress}
         style={{
-          width: 48,
-          height: 48,
-          borderRadius: 24,
-          backgroundColor: color + '20',
-          justifyContent: 'center',
           alignItems: 'center',
-          marginBottom: 8,
+          padding: 16,
+          borderRadius: 20,
+          backgroundColor: currentTheme.colors.surface,
+          borderWidth: 1,
+          borderColor: currentTheme.colors.border,
+          width: 100,
         }}
       >
-        <Ionicons name={icon} size={24} color={color} />
-      </View>
-      <Typography className="text-xs font-semibold text-primary">{label}</Typography>
-    </TouchableOpacity>
-  </Animated.View>
-);
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: color + '20',
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginBottom: 8,
+          }}
+        >
+          <Ionicons name={icon} size={24} color={color} />
+        </View>
+        <Typography style={{ fontSize: 12, fontWeight: '600', color: currentTheme.colors.text }}>
+          {label}
+        </Typography>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
 
 export const OutfitResultScreen = ({ navigation, route }: any) => {
+  const { currentTheme } = useThemeStore();
   const { generatedOutfit, outfits, toggleFavorite, recordOutfitWear } = useOutfitStore();
   const { calculateStyleMatchScore } = useStyleStore();
   const outfitId = route.params?.outfitId;
@@ -215,7 +220,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
         <Ionicons
           name="alert-circle-outline"
           size={64}
-          color={theme.colors.textSecondary}
+          color={currentTheme.colors.textSecondary}
           style={{ marginBottom: 16 }}
         />
         <Typography className="text-gray-500 text-center mb-4">Outfit not found</Typography>
@@ -232,7 +237,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
       >
         {/* Header */}
         <LinearGradient
-          colors={[theme.colors.primary, '#2A2D31', theme.colors.background]}
+          colors={[currentTheme.colors.primary, '#2A2D31', currentTheme.colors.background]}
           style={{ paddingTop: 60, paddingBottom: 32, paddingHorizontal: 24 }}
         >
           {/* Navigation */}
@@ -281,7 +286,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
                 }}
               >
                 <LinearGradient
-                  colors={[theme.colors.secondary, '#E8D89A']}
+                  colors={[currentTheme.colors.secondary, '#E8D89A']}
                   style={{
                     width: '100%',
                     height: '100%',
@@ -290,7 +295,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
                     alignItems: 'center',
                   }}
                 >
-                  <Ionicons name="flash" size={28} color={theme.colors.primary} />
+                  <Ionicons name="flash" size={28} color={currentTheme.colors.primary} />
                 </LinearGradient>
               </View>
             </Animated.View>
@@ -363,7 +368,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
                       paddingHorizontal: 16,
                       paddingVertical: 8,
                       borderRadius: 20,
-                      backgroundColor: theme.colors.primary + '10',
+                      backgroundColor: currentTheme.colors.primary + '10',
                     }}
                   >
                     <Typography className="text-sm text-primary font-medium">#{tag}</Typography>
@@ -386,7 +391,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
                   icon="person-circle-outline"
                   label="Preview"
                   onPress={handleAvatarPreview}
-                  color={theme.colors.accent}
+                  color={currentTheme.colors.accent}
                   delay={900}
                 />
                 <View style={{ width: 12 }} />
@@ -396,7 +401,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
               icon="body-outline"
               label="Try On"
               onPress={handleTryOn}
-              color={theme.colors.secondary}
+              color={currentTheme.colors.secondary}
               delay={user?.avatarUrl ? 1000 : 900}
             />
             <View style={{ width: 12 }} />
@@ -404,7 +409,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
               icon="checkmark-circle"
               label="Wear Today"
               onPress={handleWear}
-              color={theme.colors.success}
+              color={currentTheme.colors.success}
               delay={1000}
             />
             <View style={{ width: 12 }} />
@@ -412,7 +417,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
               icon="share-outline"
               label="Share"
               onPress={handleShare}
-              color={theme.colors.accent}
+              color={currentTheme.colors.accent}
               delay={1100}
             />
             <View style={{ width: 12 }} />
@@ -420,7 +425,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
               icon="refresh"
               label="Regenerate"
               onPress={() => navigation.navigate('GenerateOutfitFlow')}
-              color={theme.colors.warning}
+              color={currentTheme.colors.warning}
               delay={1200}
             />
           </ScrollView>
@@ -428,7 +433,7 @@ export const OutfitResultScreen = ({ navigation, route }: any) => {
       </ScrollView>
 
       <LinearGradient
-        colors={['transparent', theme.colors.background]}
+        colors={['transparent', currentTheme.colors.background]}
         style={{
           position: 'absolute',
           bottom: 0,

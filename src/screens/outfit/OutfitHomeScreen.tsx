@@ -9,6 +9,7 @@ import {
   PrimaryButton,
 } from '../../components/common';
 import { useOutfitStore } from '../../store/useOutfitStore';
+import { useWardrobeStore } from '../../store/useWardrobeStore';
 import { useThemeStore } from '../../store/useThemeStore';
 import { EmptyStates } from '../../components/EmptyState';
 import { useTabScreenPadding } from '../../hooks/useTabScreenPadding';
@@ -31,11 +32,18 @@ export const OutfitHomeScreen = ({ navigation }: Props) => {
     );
   };
   const { outfits, favorites, isGenerating, toggleFavorite } = useOutfitStore();
+  const fetchItems = useWardrobeStore((s) => s.fetchItems);
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
+    try {
+      await fetchItems();
+    } catch (err) {
+      if (__DEV__) console.warn('[OutfitHome] refresh', err);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleGenerateOutfit = () => {

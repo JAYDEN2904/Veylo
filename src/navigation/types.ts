@@ -1,17 +1,11 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
 // Navigation Types
 // These types define the parameter lists for each navigator
 
 export type RootStackParamList = {
   App: undefined;
   Auth: undefined;
-};
-
-export type AppTabParamList = {
-  TodayStack: undefined;
-  OutfitsStack: undefined;
-  ScanStack: undefined;
-  FeedStack: undefined;
-  ProfileStack: undefined;
 };
 
 export type TodayStackParamList = {
@@ -24,10 +18,19 @@ export type TodayStackParamList = {
   ItemDetails: { itemId: string };
 };
 
+export type AppTabParamList = {
+  TodayStack: NavigatorScreenParams<TodayStackParamList> | undefined;
+  OutfitsStack: undefined;
+  ScanStack: undefined;
+  FeedStack: undefined;
+  ProfileStack: undefined;
+};
+
 /** @deprecated use TodayStackParamList — kept as alias during migration. */
 export type WardrobeStackParamList = TodayStackParamList;
 
-export type ScanStackParamList = {
+/** Scan capture/review params shared by the root focused scan flow. */
+export type ScanFlowParams = {
   LiveCameraScan: undefined;
   ScanProcessing: { imageUri?: string } | undefined;
   TagReview:
@@ -39,6 +42,9 @@ export type ScanStackParamList = {
     | undefined;
   ScanFailure: { error?: string } | undefined;
 };
+
+/** @deprecated Scan workflow now lives on AppRootStack. Kept for typed leftovers. */
+export type ScanStackParamList = ScanFlowParams;
 
 export type OutfitStackParamList = {
   OutfitHome: undefined;
@@ -68,7 +74,6 @@ export type ProfileStackParamList = {
 };
 
 export type AuthStackParamList = {
-  Splash: undefined;
   Welcome: undefined;
   StyleQuiz: undefined;
   StyleDnaReveal: { answers?: Record<string, unknown> } | undefined;
@@ -82,7 +87,17 @@ export type AuthStackParamList = {
 
 /** Root stack above tab navigator (modal/full-screen flows). */
 export type AppRootStackParamList = {
-  MainTabs: undefined;
+  MainTabs: NavigatorScreenParams<AppTabParamList> | undefined;
+  LiveCameraScan: undefined;
+  ScanProcessing: { imageUri?: string } | undefined;
+  TagReview:
+    | { itemId?: string; imageUri?: string; aiConfidence?: number; aiCategory?: string }
+    | undefined;
+  BatchScanQueue: { uris: string[] };
+  SaveItemConfirmation:
+    | { itemId?: string; imageUri?: string; category?: string; brand?: string; tags?: string[] }
+    | undefined;
+  ScanFailure: { error?: string } | undefined;
   GenerateOutfitFlow: undefined;
   CreateOutfit: undefined;
   OutfitLoading: undefined;

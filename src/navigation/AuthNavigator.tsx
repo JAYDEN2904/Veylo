@@ -3,7 +3,6 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { AuthStackParamList } from './types';
 
 // Import Screens
-import { SplashScreen } from '../screens/auth/SplashScreen';
 import { WelcomeCarouselScreen } from '../screens/auth/WelcomeCarouselScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { SignupScreen } from '../screens/auth/SignupScreen';
@@ -18,8 +17,7 @@ const Stack = createStackNavigator<AuthStackParamList>();
 
 export const AuthNavigator = () => {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Splash" component={SplashScreen} />
+    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Welcome">
       <Stack.Screen name="Welcome" component={WelcomeCarouselScreen} />
       <Stack.Screen name="StyleQuiz" component={StyleQuizScreen} />
       <Stack.Screen name="StyleDnaReveal" component={StyleDnaRevealScreen} />
