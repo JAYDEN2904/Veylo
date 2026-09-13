@@ -98,6 +98,10 @@ import type { GenderAffinity } from '../utils/itemMetadata';
 export interface ClothingItem {
   id: string;
   imageUrl: string;
+  /** Private-bucket object path (`item-photos`). Stable across signed-URL refreshes. */
+  imagePath?: string;
+  /** Smaller grid image: local cache, `_thumb` object, or the full signed URL. */
+  thumbnailUrl?: string;
   category: string;
   subCategory?: string;
   /** Display names derived from HSL */
@@ -146,6 +150,7 @@ export interface WardrobeState {
   setFilter: (key: keyof WardrobeFilters, value: string | undefined) => void;
   toggleItemFavorite: (id: string) => void;
   isItemFavorite: (id: string) => boolean;
+  reset: () => void;
 }
 
 // Scan pipeline

@@ -64,3 +64,14 @@ export const useThemeStore = create<ThemeState>()(
     }
   )
 );
+
+/** Keep `system` mode in sync with OS appearance while the app is open. */
+export function subscribeThemeToAppearance(): () => void {
+  const subscription = Appearance.addChangeListener(() => {
+    const { mode, setMode } = useThemeStore.getState();
+    if (mode === 'system') {
+      setMode('system');
+    }
+  });
+  return () => subscription.remove();
+}

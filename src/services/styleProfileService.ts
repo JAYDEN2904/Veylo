@@ -10,10 +10,10 @@ import { deriveStyleDnaLabel } from '../utils/styleDna';
 export async function upsertStyleProfile(
   userId: string,
   answers: Partial<OnboardingQuizAnswers>
-): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return true;
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) return true;
 
   try {
     const dnaLabel = deriveStyleDnaLabel(answers);
@@ -33,10 +33,13 @@ export async function upsertStyleProfile(
 
     const { error } = await supabase.from('style_profiles').upsert(row, { onConflict: 'user_id' });
 
-    if (error && __DEV__) {
-      console.error('[styleProfileService] upsertStyleProfile', error);
+    if (error) {
+      if (__DEV__) console.error('[styleProfileService] upsertStyleProfile', error);
+      return false;
     }
+    return true;
   } catch (err) {
     if (__DEV__) console.error('[styleProfileService] unexpected', err);
+    return false;
   }
 }

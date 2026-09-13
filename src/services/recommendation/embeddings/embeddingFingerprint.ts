@@ -55,7 +55,7 @@ export function clothingItemToSourceFields(item: ClothingItem): EmbeddingSourceF
     season: normalizeList(item.season),
     genderAffinity: normalizeToken(item.genderAffinity),
     occasionTags: normalizeList(item.occasionTags),
-    imageIdentity: imageIdentityFromUrlOrPath(item.imageUrl),
+    imageIdentity: imageIdentityFromUrlOrPath(item.imagePath || item.imageUrl),
   };
 }
 

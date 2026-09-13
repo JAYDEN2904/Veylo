@@ -10,7 +10,14 @@ import {
   updateClothingItem,
 } from '../services/wardrobeRepository';
 import { isSupabaseConfigured } from '../services/supabase';
+import { clearSignedUrlCache } from '../services/signedUrlCache';
 import { onClientItemUpdated, onClothingItemDeleted } from '../services/recommendation/embeddings/embeddingLifecycle';
+import {
+  attachLocalThumbnails,
+  clearWardrobeImageDiskCache,
+  forgetLocalImage,
+  warmWardrobeImages,
+} from '../services/wardrobeImageCache';
 
 function ensureColorsHsl(items: ClothingItem[]): ClothingItem[] {
   return items.map((item) => ({
@@ -43,14 +50,16 @@ export const useWardrobeStore = create<WardrobeState>()(
         try {
           const remote = await fetchWardrobeItemsRemote();
           if (remote !== null) {
-            set({ items: ensureColorsHsl(remote), isLoading: false });
+            const items = ensureColorsHsl(await attachLocalThumbnails(remote));
+            set({ items, isLoading: false });
+            void warmWardrobeImages(items);
             return;
           }
           // Supabase not configured — empty wardrobe (never invent demo items).
           set({ items: [], isLoading: false });
         } catch (err) {
           if (__DEV__) console.error('[useWardrobeStore] fetchItems', err);
-          set({ items: [], isLoading: false });
+          set({ isLoading: false });
         }
       },
       addItem: (item) => {
@@ -107,6 +116,10 @@ export const useWardrobeStore = create<WardrobeState>()(
 
         try {
           await deleteClothingItem(id);
+          const deleted = previousItems.find((item) => item.id === id);
+          if (deleted?.imagePath) {
+            void forgetLocalImage(deleted.imagePath);
+          }
         } catch (err) {
           set({ items: previousItems, favoriteItemIds: previousFavorites });
           if (__DEV__) console.error('[useWardrobeStore] deleteItem', err);
@@ -117,6 +130,11 @@ export const useWardrobeStore = create<WardrobeState>()(
         const { items } = get();
         if (category === 'All') return items;
         return items.filter((item) => item.category === category);
+      },
+      reset: () => {
+        void clearSignedUrlCache();
+        void clearWardrobeImageDiskCache();
+        set({ items: [], isLoading: false, filters: {}, favoriteItemIds: [] });
       },
     }),
     {

@@ -1,7 +1,9 @@
 import type { ClothingItem } from '../types';
 import type { HslColor } from '../utils/hslColor';
 import { hslToDisplayName, namedColorsToHsl, parseHslArray } from '../utils/hslColor';
+import { forgetSignedUrl, resolveSignedUrls } from './signedUrlCache';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+import { thumbnailStoragePath } from './wardrobeImagePaths';
 import {
   onClothingItemDeleted,
   onClothingRowCreated,
@@ -65,22 +67,23 @@ export function clothingItemPatchAffectsEmbedding(
 }
 
 export async function signedUrlForItemPath(path: string): Promise<string> {
-  const supabase = getSupabase();
-  if (!supabase) return '';
-  const { data, error } = await supabase.storage.from('item-photos').createSignedUrl(path, 3600);
-  if (error || !data?.signedUrl) {
-    return '';
-  }
-  return data.signedUrl;
+  const signed = await resolveSignedUrls('item-photos', [path]);
+  return signed.get(path) ?? '';
 }
 
-function rowToItem(row: ClothingRow, imageUrl: string): ClothingItem {
+function rowToItem(
+  row: ClothingRow,
+  imageUrl: string,
+  extras?: { thumbnailUrl?: string }
+): ClothingItem {
   const hsl = parseHslArray(row.colors_hsl);
   const colors = hsl.length > 0 ? hsl.map(hslToDisplayName) : (row.colors ?? []);
 
   return {
     id: row.id,
     imageUrl,
+    imagePath: row.image_path,
+    thumbnailUrl: extras?.thumbnailUrl || imageUrl,
     category: row.category,
     subCategory: row.sub_category ?? undefined,
     colors,
@@ -102,8 +105,11 @@ function rowToItem(row: ClothingRow, imageUrl: string): ClothingItem {
 }
 
 export async function rowToClothingItem(row: ClothingRow): Promise<ClothingItem> {
-  const url = await signedUrlForItemPath(row.image_path);
-  return rowToItem(row, url);
+  const thumbPath = thumbnailStoragePath(row.image_path);
+  const signed = await resolveSignedUrls('item-photos', [row.image_path, thumbPath]);
+  const url = signed.get(row.image_path) ?? '';
+  const thumbnailUrl = signed.get(thumbPath) ?? url;
+  return rowToItem(row, url || thumbnailUrl, { thumbnailUrl });
 }
 
 export async function getCurrentUserId(): Promise<string | null> {
@@ -229,12 +235,15 @@ export async function deleteClothingItem(id: string): Promise<void> {
   onClothingItemDeleted(id);
 
   if (row.image_path) {
+    const thumbPath = thumbnailStoragePath(row.image_path);
     const { error: storageError } = await supabase.storage
       .from('item-photos')
-      .remove([row.image_path]);
+      .remove([row.image_path, thumbPath]);
     if (storageError && __DEV__) {
       console.warn('[deleteClothingItem] storage remove failed:', storageError.message);
     }
+    forgetSignedUrl('item-photos', row.image_path);
+    forgetSignedUrl('item-photos', thumbPath);
   }
 }
 
@@ -261,11 +270,16 @@ export async function fetchWardrobeItemsRemote(): Promise<ClothingItem[] | null>
     throw error;
   }
   const rows = (data ?? []) as ClothingRow[];
+  const imagePaths = rows.map((row) => row.image_path).filter((path) => path.length > 0);
+  const thumbPaths = imagePaths.map(thumbnailStoragePath);
+  const signed = await resolveSignedUrls('item-photos', [...imagePaths, ...thumbPaths]);
+
   const items: ClothingItem[] = [];
   for (const row of rows) {
-    const url = await signedUrlForItemPath(row.image_path);
-    if (!url) continue;
-    items.push(rowToItem(row, url));
+    const fullUrl = signed.get(row.image_path) ?? '';
+    const thumbUrl = signed.get(thumbnailStoragePath(row.image_path)) ?? fullUrl;
+    if (!fullUrl && !thumbUrl) continue;
+    items.push(rowToItem(row, fullUrl || thumbUrl, { thumbnailUrl: thumbUrl }));
   }
   return items;
 }

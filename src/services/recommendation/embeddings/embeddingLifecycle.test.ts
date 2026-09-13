@@ -74,6 +74,20 @@ describe('embedding fingerprint', () => {
     ).toBe(imageIdentityFromUrlOrPath('https://x/storage/v1/object/sign/item-photos/u1/a.jpg?token=bbb'));
   });
 
+  it('prefers imagePath over a rotating signed URL', () => {
+    const shirt = item({
+      id: 't1',
+      imagePath: 'u1/a.jpg',
+      imageUrl: 'https://cdn.example/item-photos/u1/a.jpg?token=1',
+    });
+    expect(
+      embeddingSourceChanged(shirt, {
+        ...shirt,
+        imageUrl: 'https://cdn.example/item-photos/u1/a.jpg?token=2',
+      })
+    ).toBe(false);
+  });
+
   it('does not change for notes, wear, or brand', () => {
     const shirt = item({ id: 't1', notes: 'old', brand: 'A', wornCount: 1 });
     expect(

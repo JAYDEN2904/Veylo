@@ -24,6 +24,7 @@ interface StyleStore {
   recordRecommendationThumb: (recommendationId: string, thumb: 'up' | 'down') => void;
   learnFromActions: (items: ClothingItem[], outfits: Outfit[]) => void;
   calculateStyleMatchScore: (outfit: Outfit) => number;
+  reset: () => void;
 }
 
 const calculateInitialStyleScore = (
@@ -289,6 +290,18 @@ export const useStyleStore = create<StyleStore>()(
         // Normalize to 0-100
         return Math.min(100, Math.max(0, score));
       },
+
+      reset: () =>
+        set({
+          styleProfile: null,
+          userActions: {
+            favoriteOutfits: [],
+            favoriteItems: [],
+            wornItems: [],
+            outfitFeedback: {},
+            recommendationThumbs: {},
+          },
+        }),
     }),
     {
       name: 'veylo-style-v1',

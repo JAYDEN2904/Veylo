@@ -44,6 +44,7 @@ function rowToSchedulableItem(row: ClothingRowLike): ClothingItem {
   return {
     id: row.id,
     imageUrl: row.image_path ?? '',
+    imagePath: row.image_path ?? undefined,
     category: row.category ?? 'unknown',
     subCategory: row.sub_category ?? undefined,
     colors,

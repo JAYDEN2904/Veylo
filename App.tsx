@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Appearance } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from 'react-error-boundary';
@@ -16,6 +17,7 @@ import { initSentry } from './src/instrument/sentry';
 import { RootErrorFallback } from './src/components/RootErrorFallback';
 import { NetworkGate } from './src/components/NetworkGate';
 import { AppProviders } from './src/providers/AppProviders';
+import { subscribeThemeToAppearance, useThemeStore } from './src/store/useThemeStore';
 
 initSentry();
 
@@ -34,11 +36,17 @@ export default function App() {
   });
   const [appReady, setAppReady] = useState(false);
 
+  const themeMode = useThemeStore((s) => s.mode);
+  const resolvedScheme = themeMode === 'system' ? Appearance.getColorScheme() : themeMode;
+  const statusBarStyle = resolvedScheme === 'dark' ? 'light' : 'dark';
+
   useEffect(() => {
     if (fontsLoaded || fontError) {
       setAppReady(true);
     }
   }, [fontsLoaded, fontError]);
+
+  useEffect(() => subscribeThemeToAppearance(), []);
 
   const onLayoutRootView = useCallback(async () => {
     if (appReady) {
@@ -54,7 +62,7 @@ export default function App() {
     <ErrorBoundary FallbackComponent={RootErrorFallback}>
       <AppProviders>
         <SafeAreaProvider onLayout={onLayoutRootView}>
-          <StatusBar style="auto" />
+          <StatusBar style={statusBarStyle} />
           <NetworkGate>
             <RootNavigator />
           </NetworkGate>
